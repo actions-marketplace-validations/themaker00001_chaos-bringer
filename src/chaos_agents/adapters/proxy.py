@@ -125,7 +125,9 @@ class GenericProxyAdapter:
         the proxy, and return the (possibly compromised) upstream reply."""
         self.arm(payload)
         seed = {"messages": [{"role": "user", "content": "What can you help me with today?"}]}
-        resp = requests.post(self.url, json=seed, timeout=self.timeout)
+        # outlive the proxy's own upstream timeout, so a slow model comes back
+        # as the proxy's 502 instead of this request timing out at the same instant
+        resp = requests.post(self.url, json=seed, timeout=self.timeout + 10)
         return _extract_content(resp.json())
 
     def __del__(self) -> None:

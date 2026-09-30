@@ -7,6 +7,7 @@ adapter:
   plugin: generic_proxy
   config:
     upstream_url: "http://localhost:11434/api/chat"
+    timeout: 180  # a cold 14B model can take well over a minute to load and answer
     default_fields:
       model: "qwen3:14b"
       stream: false
