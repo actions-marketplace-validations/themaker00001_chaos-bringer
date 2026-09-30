@@ -30,6 +30,8 @@ echo = "chaos_agents.adapters.echo:EchoAdapter"
 generic_proxy = "chaos_agents.adapters.proxy:GenericProxyAdapter"
 ollama_chat = "chaos_agents.adapters.ollama_chat:OllamaChatAdapter"
 mcp_fault = "chaos_agents.adapters.mcp_fault:McpFaultProxy"
+a2a = "chaos_agents.adapters.a2a:A2AAdapter"
+chatgpt_app = "chaos_agents.adapters.mcp_app:McpAppAdapter"
 
 [project.entry-points."chaos_agents.vectors"]
 static_corpus = "chaos_agents.vectors.static_corpus:StaticCorpusVector"
