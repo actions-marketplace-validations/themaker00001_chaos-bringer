@@ -45,7 +45,7 @@ flowchart LR
 - **Model Provider** — generates mutated payloads and, optionally, judges. Default: **Ollama**, local and free.
 - **Target Adapter** — connects to the system under test. Default: a **generic reverse proxy** that intercepts any OpenAI/Ollama-shaped chat call, so most frameworks need zero adapter code.
 - **Chaos Vector** — a mutation/fault-injection strategy. Default: a **static payload corpus**, no model call needed at all.
-- **Judge** — decides pass/fail/severity. Default: **rule-based** (regex / forbidden-substring), no LLM required.
+- **Judge** — decides pass/fail/severity. **rule-based** (regex / forbidden-substring, no model call) for clean cases; **llm** — a local model reads a plain-English policy and catches the fuzzier failures (paraphrased leaks, unsafe compliance) the rules miss, still free on Ollama.
 
 ## Verified against real agents, not just a mock
 

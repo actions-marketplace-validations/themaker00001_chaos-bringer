@@ -34,6 +34,7 @@ static_corpus = "chaos_agents.vectors.static_corpus:StaticCorpusVector"
 
 [project.entry-points."chaos_agents.judges"]
 rule_based = "chaos_agents.judges.rule_based:RuleBasedJudge"
+llm = "chaos_agents.judges.llm:LLMJudge"
 
 [tool.setuptools.packages.find]
 where = ["src"]
