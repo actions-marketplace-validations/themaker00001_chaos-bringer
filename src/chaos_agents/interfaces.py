@@ -57,6 +57,28 @@ class ChaosVector(Protocol):
 
 
 @runtime_checkable
+class ConversationVector(Protocol):
+    """A vector that attacks over several turns, not one shot. Each item is a
+    conversation: an ordered list of user messages sent to the same session.
+    The orchestrator uses this path only when the target can hold a
+    conversation (see `MultiTurnTarget`); otherwise it falls back to
+    `generate()` if the vector also offers it."""
+
+    def conversations(self) -> list[list[str]]:
+        ...
+
+
+@runtime_checkable
+class MultiTurnTarget(Protocol):
+    """A target that keeps conversation state. `converse` sends each user
+    turn in order within one fresh session and returns the reply after each,
+    so an attack can build across turns the way a real chat does."""
+
+    def converse(self, turns: list[str]) -> list[str]:
+        ...
+
+
+@runtime_checkable
 class Judge(Protocol):
     """Decides pass/fail/severity for one (payload, response) exchange."""
 
