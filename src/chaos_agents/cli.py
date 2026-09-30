@@ -13,8 +13,18 @@ def _cmd_run(args: argparse.Namespace) -> int:
     campaign = Campaign.from_yaml(args.campaign)
     corpus = Corpus(campaign.name, root=args.runs_dir)
     records = run_campaign(campaign, corpus)
-    print(report.render(campaign.name, records))
-    print(f"\nFull trace: {corpus.results_path}")
+
+    if args.fancy:
+        from chaos_agents import report_rich
+
+        report_rich.render(campaign.name, records)
+        if args.svg:
+            report_rich.render_svg(campaign.name, records, args.svg)
+            print(f"\nSVG written to: {args.svg}")
+    else:
+        print(report.render(campaign.name, records))
+
+    print(f"Full trace: {corpus.results_path}")
     return 1 if any(not r.passed for r in records) else 0
 
 
@@ -34,6 +44,8 @@ def main(argv: list[str] | None = None) -> int:
     run_p = sub.add_parser("run", help="run a campaign against its target")
     run_p.add_argument("campaign", help="path to a campaign YAML file")
     run_p.add_argument("--runs-dir", default="runs", help="where to write the corpus (default: ./runs)")
+    run_p.add_argument("--fancy", action="store_true", help="render with rich (requires: pip install chaos-agents[rich])")
+    run_p.add_argument("--svg", metavar="PATH", help="also save the --fancy report as a terminal-styled SVG")
     run_p.set_defaults(func=_cmd_run)
 
     plugins_p = sub.add_parser("plugins", help="list installed plugins by surface")

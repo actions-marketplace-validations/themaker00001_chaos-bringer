@@ -113,11 +113,17 @@ class GenericProxyAdapter:
         self._server = None
         self._thread = None
 
+    def arm(self, payload: str) -> None:
+        """Arm `payload` to be injected into the next call(s) that pass
+        through the proxy. Use this when a real framework is driving traffic
+        through `.url` on its own -- `invoke()` is only the self-test path."""
+        self.start()
+        self._armed_payload = payload
+
     def invoke(self, payload: str) -> str:
         """Arm `payload` as the injected message, send a seed request through
         the proxy, and return the (possibly compromised) upstream reply."""
-        self.start()
-        self._armed_payload = payload
+        self.arm(payload)
         seed = {"messages": [{"role": "user", "content": "What can you help me with today?"}]}
         resp = requests.post(self.url, json=seed, timeout=self.timeout)
         return _extract_content(resp.json())
