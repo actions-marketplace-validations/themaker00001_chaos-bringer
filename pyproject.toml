@@ -32,6 +32,7 @@ ollama_chat = "chaos_agents.adapters.ollama_chat:OllamaChatAdapter"
 mcp_fault = "chaos_agents.adapters.mcp_fault:McpFaultProxy"
 a2a = "chaos_agents.adapters.a2a:A2AAdapter"
 chatgpt_app = "chaos_agents.adapters.mcp_app:McpAppAdapter"
+sandbox = "chaos_agents.adapters.sandbox:SandboxTarget"
 
 [project.entry-points."chaos_agents.vectors"]
 static_corpus = "chaos_agents.vectors.static_corpus:StaticCorpusVector"

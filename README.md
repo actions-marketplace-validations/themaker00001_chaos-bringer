@@ -43,7 +43,7 @@ flowchart LR
 ```
 
 - **Model Provider** — generates mutated payloads and, optionally, judges. Default: **Ollama**, local and free.
-- **Target Adapter** — connects to the system under test. **generic_proxy** intercepts any OpenAI/Ollama-shaped chat call, so most frameworks need zero adapter code; **ollama_chat** points straight at a local model that holds a conversation (no framework wiring), and it carries state, so **multi-turn** attacks that build across turns work against it; **mcp_fault** is a fault-injecting MCP proxy that poisons, errors, delays or mangles tool results on their way back to an agent; **a2a** attacks an Agent-to-Agent agent over JSON-RPC; **chatgpt_app** attacks a ChatGPT App (an MCP server) by calling its tools with hostile arguments.
+- **Target Adapter** — connects to the system under test. **generic_proxy** intercepts any OpenAI/Ollama-shaped chat call, so most frameworks need zero adapter code; **ollama_chat** points straight at a local model that holds a conversation (no framework wiring), and it carries state, so **multi-turn** attacks that build across turns work against it; **mcp_fault** is a fault-injecting MCP proxy that poisons, errors, delays or mangles tool results on their way back to an agent; **a2a** attacks an Agent-to-Agent agent over JSON-RPC; **chatgpt_app** attacks a ChatGPT App (an MCP server) by calling its tools with hostile arguments; **sandbox** is a contained environment for computer-use agents — a local model acts in a small world where the attack is planted in a page it reads, exfiltration is recorded but never really sent, and the sandbox detects compromise from ground truth.
 - **Chaos Vector** — where the attacks come from. **static_corpus** replays a fixed payload list; **llm** has a model write fresh attacks from a goal you state; **multiturn** escalates over several turns; **indirect** buries the attack inside tool output the agent trusts (indirect prompt injection). All free on Ollama, all pointable at your own agent.
 - **Judge** — decides pass/fail/severity. **rule-based** (regex / forbidden-substring, no model call) for clean cases; **llm** — a local model reads a plain-English policy and catches the fuzzier failures (paraphrased leaks, unsafe compliance) the rules miss, still free on Ollama.
 
@@ -128,10 +128,12 @@ my-judge = "my_package.judges:MyJudge"
 Working v1. Built and tested: the plugin architecture; single-shot,
 multi-turn, indirect and LLM-generated attacks; rule-based and LLM judging;
 targets via generic proxy, a direct local model, MCP fault injection, A2A,
-and ChatGPT Apps; failing targets recorded as findings.
+ChatGPT Apps, and a contained sandbox for computer-use agents; failing
+targets recorded as findings.
 
-Still to come: a sandboxed environment adapter for always-on computer-use
-agents (Grok Bot, OpenAI Dots), and publishing to PyPI.
+The sandbox is a simulation of the computer-use archetype (a local model as
+the stand-in agent), not a live integration with Grok Bot or OpenAI Dots,
+which expose no public API to drive. Still to come: publishing to PyPI.
 
 ## Credits
 
