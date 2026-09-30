@@ -32,3 +32,17 @@ def test_render_svg_with_no_findings(tmp_path):
     svg = out.read_text()
     assert "findings" in svg  # rich encodes the space as &#160;, so match loosely
     assert report_rich.POISON in svg  # a clean run uses the "survived" color
+
+
+def test_announce_prints_a_themed_line_for_each_verdict():
+    from rich.console import Console
+
+    from chaos_agents import report_rich
+
+    console = Console(record=True, width=100)
+    report_rich.announce(console, Record(payload="p1", response="r", passed=True, severity="info", reason="", details={}))
+    report_rich.announce(console, Record(payload="p2", response="r", passed=False, severity="high", reason="", details={}))
+
+    text = console.export_text()
+    assert "recoils" in text and "p1" in text
+    assert "swallows it whole" in text and "p2" in text
