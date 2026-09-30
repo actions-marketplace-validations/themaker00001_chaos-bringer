@@ -43,8 +43,8 @@ flowchart LR
 ```
 
 - **Model Provider** — generates mutated payloads and, optionally, judges. Default: **Ollama**, local and free.
-- **Target Adapter** — connects to the system under test. **generic_proxy** intercepts any OpenAI/Ollama-shaped chat call, so most frameworks need zero adapter code; **ollama_chat** points straight at a local model that holds a conversation (no framework wiring), and it carries state, so **multi-turn** attacks that build across turns work against it.
-- **Chaos Vector** — where the attacks come from. **static_corpus** replays a fixed payload list (no model call); **llm** has a model write fresh, varied attacks aimed at a goal you state, free on Ollama. Point either at your own agent.
+- **Target Adapter** — connects to the system under test. **generic_proxy** intercepts any OpenAI/Ollama-shaped chat call, so most frameworks need zero adapter code; **ollama_chat** points straight at a local model that holds a conversation (no framework wiring), and it carries state, so **multi-turn** attacks that build across turns work against it; **mcp_fault** is a fault-injecting MCP proxy that poisons, errors, delays or mangles tool results on their way back to an agent.
+- **Chaos Vector** — where the attacks come from. **static_corpus** replays a fixed payload list; **llm** has a model write fresh attacks from a goal you state; **multiturn** escalates over several turns; **indirect** buries the attack inside tool output the agent trusts (indirect prompt injection). All free on Ollama, all pointable at your own agent.
 - **Judge** — decides pass/fail/severity. **rule-based** (regex / forbidden-substring, no model call) for clean cases; **llm** — a local model reads a plain-English policy and catches the fuzzier failures (paraphrased leaks, unsafe compliance) the rules miss, still free on Ollama.
 
 ## Verified against real agents, not just a mock

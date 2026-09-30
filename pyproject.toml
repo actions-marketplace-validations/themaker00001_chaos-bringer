@@ -29,11 +29,13 @@ ollama = "chaos_agents.providers.ollama:OllamaProvider"
 echo = "chaos_agents.adapters.echo:EchoAdapter"
 generic_proxy = "chaos_agents.adapters.proxy:GenericProxyAdapter"
 ollama_chat = "chaos_agents.adapters.ollama_chat:OllamaChatAdapter"
+mcp_fault = "chaos_agents.adapters.mcp_fault:McpFaultProxy"
 
 [project.entry-points."chaos_agents.vectors"]
 static_corpus = "chaos_agents.vectors.static_corpus:StaticCorpusVector"
 llm = "chaos_agents.vectors.llm:LLMVector"
 multiturn = "chaos_agents.vectors.multiturn:MultiTurnVector"
+indirect = "chaos_agents.vectors.indirect:IndirectVector"
 
 [project.entry-points."chaos_agents.judges"]
 rule_based = "chaos_agents.judges.rule_based:RuleBasedJudge"
