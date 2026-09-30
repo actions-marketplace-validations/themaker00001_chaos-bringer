@@ -29,16 +29,27 @@ def run_campaign(
     for payload in vector.generate():
         if on_step:
             on_step(payload)
-        response = adapter.invoke(payload)
-        verdict = judge.evaluate(payload, response)
-        record = Record(
-            payload=payload,
-            response=response,
-            passed=verdict.passed,
-            severity=verdict.severity,
-            reason=verdict.reason,
-            details=verdict.details,
-        )
+        try:
+            response = adapter.invoke(payload)
+        except Exception as exc:  # noqa: BLE001 -- a failing target is a result, not a reason to stop
+            record = Record(
+                payload=payload,
+                response="",
+                passed=False,
+                severity="medium",
+                reason=f"target failed: {type(exc).__name__}: {exc}",
+                details={"error": type(exc).__name__, "message": str(exc)},
+            )
+        else:
+            verdict = judge.evaluate(payload, response)
+            record = Record(
+                payload=payload,
+                response=response,
+                passed=verdict.passed,
+                severity=verdict.severity,
+                reason=verdict.reason,
+                details=verdict.details,
+            )
         corpus.record(record)
         records.append(record)
         if on_result:

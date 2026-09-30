@@ -22,6 +22,13 @@ class Verdict:
     details: dict[str, Any] = field(default_factory=dict)
 
 
+class TargetError(RuntimeError):
+    """Raised by an adapter when the target itself failed -- errored, timed
+    out, or answered with something that isn't a reply. The orchestrator
+    records it as a finding rather than stopping the campaign; any other
+    exception from `invoke` is treated the same way."""
+
+
 @runtime_checkable
 class ModelProvider(Protocol):
     """Generates text from a model. Backs the Chaos Engine and, optionally, an LLM judge."""

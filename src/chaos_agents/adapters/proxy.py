@@ -18,6 +18,8 @@ from typing import Any
 
 import requests
 
+from chaos_agents.interfaces import TargetError
+
 
 def _extract_content(data: dict[str, Any]) -> str:
     """Best-effort content extraction across Ollama- and OpenAI-shaped responses."""
@@ -128,7 +130,12 @@ class GenericProxyAdapter:
         # outlive the proxy's own upstream timeout, so a slow model comes back
         # as the proxy's 502 instead of this request timing out at the same instant
         resp = requests.post(self.url, json=seed, timeout=self.timeout + 10)
-        return _extract_content(resp.json())
+        body = resp.json()
+        if resp.status_code >= 400:
+            # the target never answered -- don't hand its error JSON to the
+            # judge as if it were a reply that "survived" the payload
+            raise TargetError(f"upstream returned HTTP {resp.status_code}: {body.get('error', body)}")
+        return _extract_content(body)
 
     def __del__(self) -> None:
         self.stop()
