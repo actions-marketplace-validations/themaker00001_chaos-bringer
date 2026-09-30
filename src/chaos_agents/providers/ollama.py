@@ -20,10 +20,12 @@ class OllamaProvider:
         model: str = "llama3.2",
         base_url: str = "http://localhost:11434",
         timeout: float = 60.0,
+        options: dict | None = None,
     ) -> None:
         self.model = model
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
+        self.options = options or {}  # Ollama sampling options, e.g. {"temperature": 0}
 
     def complete(self, prompt: str, *, system: str | None = None) -> str:
         messages = []
@@ -34,7 +36,7 @@ class OllamaProvider:
         try:
             resp = requests.post(
                 f"{self.base_url}/api/chat",
-                json={"model": self.model, "messages": messages, "stream": False},
+                json={"model": self.model, "messages": messages, "stream": False, "options": self.options},
                 timeout=self.timeout,
             )
             resp.raise_for_status()
