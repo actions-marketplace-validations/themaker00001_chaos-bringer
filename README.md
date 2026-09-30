@@ -15,6 +15,14 @@ to Nergal — the Mesopotamian god of plague and the underworld, on loan as
 the project's patron deity for what happens to an agent's assumptions here.
 
 <p align="center">
+  <img src="docs/nergal.gif" alt="Nergal, a green horned demon, stirring a glowing cauldron with a scythe until the poison spills over the rim" width="432">
+</p>
+
+That's Nergal. While a `--fancy` campaign runs, he stirs his cauldron live in
+your terminal, one sprite pixel per half-block character, until the brew
+spills.
+
+<p align="center">
   <img src="docs/demo-echo.svg" alt="chaos-bringer catching a naive agent leaking a secret under prompt injection" width="720">
 </p>
 
@@ -86,11 +94,14 @@ pytest -q
 Point `campaigns/demo_proxy_ollama.yaml` at a real `ollama serve` to see the
 generic proxy hit a live free model instead of the mock.
 
-`--fancy` isn't just prettier output — while a payload is in flight it shows
-a live "Nergal is tasting: ..." status, then narrates each verdict
-(`Nergal recoils` / `Nergal swallows it whole`) as it lands, before the
-summary table. Add `--svg path.svg` to also save the whole run — narration
-and table — as a terminal-styled image, which is exactly how
+`--fancy` isn't just prettier output. While a payload is in flight, Nergal
+animates above a "Nergal is brewing: ..." status line, then each verdict is
+narrated (`Nergal recoils` / `Nergal swallows it whole`) as it lands, before
+the summary table. He needs a 256-colour or truecolor terminal: at least
+51×27 for the small version, 102×50 for full size. On anything smaller, or
+when output is piped, he steps aside and you get just the status line.
+`--no-mascot` turns him off. Add `--svg path.svg` to also save the run's
+narration and table as a terminal-styled image, which is how
 `docs/demo-echo.svg` above was made.
 
 ## Writing a plugin
@@ -111,3 +122,11 @@ v1 skeleton. The plugin architecture and the generic-proxy mechanism are
 real and tested; deeper framework adapters, the sandboxed environment
 adapter for always-on computer-use agents (Grok Bot, OpenAI Dots), and the
 security-probe vector library are still being built out.
+
+## Credits
+
+Nergal's demon is based on Stephen "Redshrike" Challener's scythe demon from
+[6 More RPG Enemies](https://opengameart.org/content/6-more-rpg-enemies)
+(with Blarumyrran and LordNeo), CC-BY 3.0 / OGA-BY 3.0. He's recolored and
+re-posed here, and the cauldron is original. Details are in
+[CREDITS.md](CREDITS.md).

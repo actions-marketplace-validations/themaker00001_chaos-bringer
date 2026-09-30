@@ -19,7 +19,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
         from chaos_agents import report_rich
 
         console = Console()
-        with report_rich.NergalStatus(console) as status:
+        with report_rich.NergalStatus(console, mascot=not args.no_mascot) as status:
             records = run_campaign(
                 campaign,
                 corpus,
@@ -56,6 +56,7 @@ def main(argv: list[str] | None = None) -> int:
     run_p.add_argument("--runs-dir", default="runs", help="where to write the corpus (default: ./runs)")
     run_p.add_argument("--fancy", action="store_true", help="render with rich (requires: pip install chaos-agents[rich])")
     run_p.add_argument("--svg", metavar="PATH", help="also save the --fancy report as a terminal-styled SVG")
+    run_p.add_argument("--no-mascot", action="store_true", help="with --fancy, skip the animated Nergal and show only the status line")
     run_p.set_defaults(func=_cmd_run)
 
     plugins_p = sub.add_parser("plugins", help="list installed plugins by surface")

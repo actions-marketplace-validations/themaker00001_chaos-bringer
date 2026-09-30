@@ -18,35 +18,49 @@ ASH = "#8a8f98"  # neutral / info
 
 
 class NergalStatus:
-    """A live spinner that stirs while a payload is in flight, themed around
-    the project's patron chaos god. Use as a context manager around the
+    """Live display while a campaign runs: the animated Nergal mascot
+    stirring its cauldron (when the terminal is big enough), over a spinner
+    line naming the payload in flight. Use as a context manager around the
     campaign loop; call `.thinking(payload)` from `on_step`, and print each
-    result with `announce()` from `on_result` -- both interleave cleanly
-    with the spinner since rich's Status pauses it for any console.print."""
+    result with `announce()` from `on_result` -- rich.Live keeps the display
+    pinned below anything printed while it's open."""
 
-    def __init__(self, console) -> None:
+    def __init__(self, console, mascot: bool = True) -> None:
+        from rich.console import Group
+        from rich.live import Live
+        from rich.spinner import Spinner
+
+        from chaos_agents import mascot as nergal
+
         self.console = console
-        self._status = console.status(self._line("stirring the bowl..."), spinner="dots", spinner_style=PLAGUE)
+        self._spinner = Spinner("dots", text=self._line("stirring the brew..."), style=PLAGUE)
+        self.mascot_size = nergal.pick_size(console) if mascot else None
+        parts = [nergal.Mascot(self.mascot_size), self._spinner] if self.mascot_size else [self._spinner]
+        self._live = Live(Group(*parts), console=console, refresh_per_second=12, transient=True)
 
     @staticmethod
     def _line(verb: str) -> str:
         return f"[bold {PLAGUE}]Nergal[/bold {PLAGUE}] is {verb}"
 
     def __enter__(self) -> "NergalStatus":
-        self._status.__enter__()
+        self._live.__enter__()
         return self
 
     def __exit__(self, *exc: object) -> None:
-        self._status.__exit__(*exc)
+        self._live.__exit__(*exc)
 
     def thinking(self, payload: str) -> None:
-        self._status.update(self._line(f"tasting: {payload[:60]}"))
+        # one line, always: a status that wraps for long payloads and not
+        # for short ones makes the whole live region jump in height
+        room = max(10, self.console.width - len("x Nergal is brewing: ") - 2)
+        shown = payload if len(payload) <= room else payload[: room - 1] + "…"
+        self._spinner.update(text=self._line(f"brewing: {shown}"))
 
 
 def announce(console, record: Record) -> None:
     """Print a persistent, themed line for one finished trial -- called
-    while a NergalStatus spinner is open, so it appears above the spinner
-    rather than fighting it for the terminal."""
+    while a NergalStatus display is open, so it appears above the live
+    mascot/spinner rather than fighting it for the terminal."""
     if record.passed:
         console.print(f"  [{POISON}]Nergal recoils[/{POISON}] from: {record.payload[:70]}")
     else:

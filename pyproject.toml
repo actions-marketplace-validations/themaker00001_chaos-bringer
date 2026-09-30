@@ -13,7 +13,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8.0"]
+dev = ["pytest>=8.0", "Pillow>=10.0"]  # Pillow: only tools/mascot, never at runtime
 rich = ["rich>=13.0"]
 
 [project.scripts]
