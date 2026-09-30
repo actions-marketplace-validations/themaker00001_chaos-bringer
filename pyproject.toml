@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "chaos-agents"
+version = "0.1.0"
+description = "A chaos monkey for agent frameworks: fuzz, fault-inject, and red-team any agent for free."
+requires-python = ">=3.10"
+dependencies = [
+    "requests>=2.31",
+    "PyYAML>=6.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+
+[project.scripts]
+chaos-agents = "chaos_agents.cli:main"
+
+# Plugin surfaces. Third parties register into the same groups via their own
+# package's entry-points -- these built-ins go through the identical path,
+# nothing about them is hardcoded into the registry.
+[project.entry-points."chaos_agents.providers"]
+ollama = "chaos_agents.providers.ollama:OllamaProvider"
+
+[project.entry-points."chaos_agents.adapters"]
+echo = "chaos_agents.adapters.echo:EchoAdapter"
+generic_proxy = "chaos_agents.adapters.proxy:GenericProxyAdapter"
+
+[project.entry-points."chaos_agents.vectors"]
+static_corpus = "chaos_agents.vectors.static_corpus:StaticCorpusVector"
+
+[project.entry-points."chaos_agents.judges"]
+rule_based = "chaos_agents.judges.rule_based:RuleBasedJudge"
+
+[tool.setuptools.packages.find]
+where = ["src"]
