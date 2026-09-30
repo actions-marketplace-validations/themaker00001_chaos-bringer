@@ -31,6 +31,7 @@ generic_proxy = "chaos_agents.adapters.proxy:GenericProxyAdapter"
 
 [project.entry-points."chaos_agents.vectors"]
 static_corpus = "chaos_agents.vectors.static_corpus:StaticCorpusVector"
+llm = "chaos_agents.vectors.llm:LLMVector"
 
 [project.entry-points."chaos_agents.judges"]
 rule_based = "chaos_agents.judges.rule_based:RuleBasedJudge"
