@@ -47,7 +47,6 @@ BODY_H = 30
 MAXW = 34
 
 IRON = [(6, 7, 9), (16, 18, 21), (30, 34, 39), (50, 57, 64), (84, 95, 104), (140, 152, 158)]
-SHADOW = (3, 5, 4)
 BREW_DEEP = (6, 70, 34)
 BREW_MID = (22, 170, 84)
 BREW = (57, 255, 136)
@@ -98,6 +97,14 @@ def split_scythe(demon):
             if near_core and not touches_skin:
                 layer.add((x, y))
 
+    # Haft outline pixels a shade lighter than the cutoff above stay behind in
+    # the body, cut off from it once the scythe moves -- stray specks on a
+    # clear background. Anything the body can't reach goes with the scythe.
+    rest = {(x, y) for x in range(w) for y in range(h) if px[x, y][3] and (x, y) not in layer}
+    for piece in _pieces(rest):
+        if len(piece) <= 12 and min(x for x, _ in piece) >= 54:
+            layer |= piece
+
     body = demon.copy()
     scythe = Image.new("RGBA", demon.size, (0, 0, 0, 0))
     bpx, spx = body.load(), scythe.load()
@@ -105,6 +112,25 @@ def split_scythe(demon):
         spx[x, y] = px[x, y]
         bpx[x, y] = (0, 0, 0, 0)
     return body, scythe
+
+
+def _pieces(cells):
+    """8-connected components of a set of (x, y) cells."""
+    cells, out = set(cells), []
+    while cells:
+        stack = [cells.pop()]
+        piece = set(stack)
+        while stack:
+            x, y = stack.pop()
+            for dx in (-1, 0, 1):
+                for dy in (-1, 0, 1):
+                    n = (x + dx, y + dy)
+                    if n in cells:
+                        cells.remove(n)
+                        piece.add(n)
+                        stack.append(n)
+        out.append(piece)
+    return out
 
 
 # ------------------------------------------------------------------ pot ---
@@ -145,13 +171,9 @@ def body_shade(x, y):
 
 # ----------------------------------------------------------- the scene ---
 def backdrop():
-    img = Image.new("RGBA", (W, H))
-    px = img.load()
-    for y in range(H):
-        for x in range(W):
-            d = math.hypot((x - CX) / 62, (y - RIM_Y) / 50)
-            px[x, y] = (*lerp(SHADOW, (14, 38, 22), (1 - d) ** 1.7 if d < 1 else 0), 255)
-    return img
+    """Transparent: Nergal is drawn straight onto whatever the terminal (or
+    the page) already is, the way Claude Code's own mascot sits."""
+    return Image.new("RGBA", (W, H), (0, 0, 0, 0))
 
 
 def place_demon(body):
@@ -164,7 +186,7 @@ def place_demon(body):
             if not a:
                 continue
             if y > RIM_Y + 1:
-                px[x, y] = (*lerp((r, g, b), SHADOW, 0.92), a)  # legs sunk in shadow behind the pot
+                px[x, y] = (0, 0, 0, 0)  # legs: hidden behind the pot, not drawn beside it
             elif (r, g, b) in PLAGUE_SKIN and y > RIM_Y - 24:
                 t = 1 - (RIM_Y - y) / 24
                 px[x, y] = (*lerp((r, g, b), BREW, 0.38 * t * t), a)
@@ -198,18 +220,21 @@ def draw_brew(px, slosh, bubbles):
 
 
 def draw_fumes(px, phase):
-    """Wisps drifting up off the brew -- blended into what's behind them."""
+    """Wisps drifting up off the brew, drawn only where they pass over the
+    demon: in open air, on a clear background, they just read as specks."""
     top = RIM_Y - RIM_RY - 2
     for i, (x0, speed) in enumerate(((37, 1.0), (47, 1.4), (57, 0.8), (43, 1.2), (54, 1.1))):
         rise = (phase * 3 * speed + i * 7) % 26
         x = x0 + int(round(math.sin((phase + i) * 0.9) * 2))
         y = int(top - rise)
-        alpha = 0.55 * (1 - rise / 26)
+        fade = rise / 26
         for dx, dy in ((0, 0), (1, 0), (0, -1)):
             xx, yy = x + dx, y + dy
-            if 0 <= xx < W and 0 <= yy < H:
-                r, g, b, _ = px[xx, yy]
-                px[xx, yy] = (*lerp((r, g, b), BREW, alpha), 255)
+            if not (0 <= xx < W and 0 <= yy < H):
+                continue
+            r, g, b, a = px[xx, yy]
+            if a:
+                px[xx, yy] = (*lerp((r, g, b), BREW, 0.55 * (1 - fade)), 255)
 
 
 def draw_pot_front(px):
@@ -291,12 +316,33 @@ def draw_eyes(px, hot):
         px[ex + OX, ey + OY] = (*color, 255)
 
 
-def rotated_scythe(scythe, angle):
+def rotated_scythe(scythe, angle, ss=4, coverage=5):
+    """Rotate at `ss`x resolution, then sample back down: an output pixel is
+    kept when at least `coverage` of its ss*ss source pixels are opaque,
+    coloured by their majority. Plain nearest-neighbour rotation shatters
+    the 1px haft into loose fragments that show up as specks on a clear
+    background; supersampling keeps thin lines connected."""
     pad = 60
-    big = Image.new("RGBA", (scythe.width + 2 * pad, scythe.height + 2 * pad), (0, 0, 0, 0))
-    big.paste(scythe, (pad, pad))
-    pivot_local = (PIVOT[0] - OX + pad, PIVOT[1] - OY + pad)
-    return big.rotate(angle, resample=Image.NEAREST, center=pivot_local), (OX - pad, OY - pad)
+    base = Image.new("RGBA", (scythe.width + 2 * pad, scythe.height + 2 * pad), (0, 0, 0, 0))
+    base.paste(scythe, (pad, pad))
+    if angle == 0:
+        return base, (OX - pad, OY - pad)
+    pivot = ((PIVOT[0] - OX + pad) * ss, (PIVOT[1] - OY + pad) * ss)
+    big = base.resize((base.width * ss, base.height * ss), Image.NEAREST).rotate(angle, resample=Image.NEAREST, center=pivot)
+    bpx = big.load()
+    out = Image.new("RGBA", base.size, (0, 0, 0, 0))
+    opx = out.load()
+    for x in range(base.width):
+        for y in range(base.height):
+            votes = {}
+            for sx in range(x * ss, x * ss + ss):
+                for sy in range(y * ss, y * ss + ss):
+                    p = bpx[sx, sy]
+                    if p[3]:
+                        votes[p] = votes.get(p, 0) + 1
+            if sum(votes.values()) >= coverage:
+                opx[x, y] = max(votes, key=votes.get)
+    return out, (OX - pad, OY - pad)
 
 
 def draw_pole(px, scythe, angle):
@@ -369,8 +415,10 @@ def main():
         sheet.paste(f.resize((W * scale, H * scale), Image.NEAREST), ((i % 4) * (W * scale + 10), (i // 4) * (H * scale + 10)))
     sheet.save(OUT / "frames_sheet.png")
 
-    gif = [f.resize((W * scale, H * scale), Image.NEAREST).convert("RGB") for f in frames]
-    gif[0].save(DOCS / "nergal.gif", save_all=True, append_images=gif[1:], duration=140, loop=0)
+    # transparent GIF: every pixel is either fully opaque or fully clear, so
+    # GIF's 1-bit transparency loses nothing; disposal=2 clears each frame
+    gif = [f.resize((W * scale, H * scale), Image.NEAREST) for f in frames]
+    gif[0].save(DOCS / "nergal.gif", save_all=True, append_images=gif[1:], duration=140, loop=0, disposal=2)
     print(f"ok: {len(frames)} frames in {OUT}, animation at {DOCS / 'nergal.gif'}")
 
 

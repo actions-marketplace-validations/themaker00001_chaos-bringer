@@ -24,13 +24,26 @@ def test_frames_actually_differ():
 
 
 @pytest.mark.parametrize("which", ["full", "small"])
-def test_renders_one_half_block_per_cell(which):
+def test_renders_one_cell_per_two_pixels_on_a_clear_background(which):
     cols, rows = mascot.size(which)
-    console = Console(record=True, width=cols + 2, force_terminal=True, color_system="truecolor", file=open("/dev/null", "w"))
-    console.print(mascot.Mascot(which, frame=3))
-    lines = [line for line in console.export_text().splitlines() if line.strip()]
+    lines = mascot._frame_lines(which)[3]
     assert len(lines) == rows
-    assert all(line.rstrip() == "▀" * cols for line in lines)
+    assert all(len(row) == cols for row in lines)
+    glyphs = {seg.text for row in lines for seg in row}
+    assert glyphs <= {" ", "▀", "▄"}
+    # clear background: empty cells carry no colour at all, so the terminal's
+    # own background shows through instead of a box
+    empty = [seg for row in lines for seg in row if seg.text == " "]
+    assert empty and all(seg.style is None for seg in empty)
+    assert all(seg.style is None or seg.style.bgcolor is None for seg in (lines[0][0], lines[-1][-1]))
+
+
+def test_corners_are_transparent():
+    for which in ("full", "small"):
+        frame = mascot._frames(which)[0]
+        w = mascot.size(which)[0]
+        assert frame[0] == mascot_data.TRANSPARENT
+        assert frame[w - 1] == mascot_data.TRANSPARENT
 
 
 def test_eye_glow_survives_palette_reduction():
@@ -58,6 +71,18 @@ def test_pick_size_is_none_on_a_basic_colour_terminal():
     # 8/16-colour terminals collapse the art into a black blob
     assert mascot.pick_size(_console(300, 200, colors="standard")) is None
     assert mascot.pick_size(_console(300, 200, colors="256")) == "full"
+
+
+def test_small_fits_a_27_row_panel():
+    # the real Terminal panel this was built against: 131x27
+    assert mascot.pick_size(_console(131, 27)) == "small"
+
+
+def test_why_not_explains_each_failure_and_stays_quiet_otherwise():
+    assert "basic colours" in mascot.why_not(_console(300, 200, colors="standard"))
+    assert "40x15" in mascot.why_not(_console(40, 15))
+    assert mascot.why_not(_console(300, 200)) is None
+    assert mascot.why_not(_console(300, 200, terminal=False)) is None  # piped: nobody to tell
 
 
 def test_unknown_size_is_rejected():

@@ -41,8 +41,13 @@ class _SlowUpstreamHandler(_EchoUpstreamHandler):
         super().do_POST()
 
 
+class _QuietServer(ThreadingHTTPServer):
+    def handle_error(self, request, client_address):
+        pass  # the slow upstream writes to a connection the proxy already gave up on -- expected
+
+
 def _serve(handler):
-    server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+    server = _QuietServer(("127.0.0.1", 0), handler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     return server, thread

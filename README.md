@@ -94,14 +94,21 @@ pytest -q
 Point `campaigns/demo_proxy_ollama.yaml` at a real `ollama serve` to see the
 generic proxy hit a live free model instead of the mock.
 
-`--fancy` isn't just prettier output. While a payload is in flight, Nergal
-animates above a "Nergal is brewing: ..." status line, then each verdict is
-narrated (`Nergal recoils` / `Nergal swallows it whole`) as it lands, before
-the summary table. He needs a 256-colour or truecolor terminal: at least
-51×27 for the small version, 102×50 for full size. On anything smaller, or
-when output is piped, he steps aside and you get just the status line.
-`--no-mascot` turns him off. Add `--svg path.svg` to also save the run's
-narration and table as a terminal-styled image, which is how
+`--fancy` isn't just prettier output. While payloads are in flight, Nergal
+stirs his cauldron in a card laid out like Claude Code's welcome screen: he's
+on the left, drawn straight onto your terminal's own background, and the
+campaign, target, vector, judge and a live "Nergal is brewing: ..." status
+are on the right. Each verdict is narrated (`Nergal recoils` / `Nergal
+swallows it whole`) as it lands. He stirs for at least 2.5 seconds even when
+the campaign finishes instantly, then the card stays on screen with the
+result, above the summary table.
+
+He needs a 256-colour or truecolor terminal. The card takes 98×26 at small
+size and 149×49 at full size, which is one sprite pixel per character.
+Narrower than the card, he appears on his own (51×26). Smaller than that,
+`--fancy` prints one line saying so, and when output is piped he quietly
+steps aside. `--no-mascot` turns him off. Add `--svg path.svg` to also save
+the run's narration and table as a terminal-styled image, which is how
 `docs/demo-echo.svg` above was made.
 
 ## Writing a plugin

@@ -15,7 +15,8 @@ from functools import lru_cache
 
 from chaos_agents import mascot_data as data
 
-_HALF = "▀"  # upper half block: fg paints the top pixel, bg the bottom
+_UPPER = "▀"  # upper half block: fg paints the top pixel, bg the bottom
+_LOWER = "▄"  # lower half block: fg paints the bottom pixel
 _SIZES = {
     "full": (data.FULL_WIDTH, data.FULL_HEIGHT, data.FULL_DATA),
     "small": (data.SMALL_WIDTH, data.SMALL_HEIGHT, data.SMALL_DATA),
@@ -33,14 +34,29 @@ def _frames(which: str) -> tuple[bytes, ...]:
     return frames
 
 
+def _cell(top: int, bottom: int):
+    """The glyph + style for one terminal cell holding two stacked pixels.
+    Transparent pixels get no colour at all, so the terminal's own
+    background shows through -- no box around Nergal."""
+    from rich.style import Style
+
+    clear = data.TRANSPARENT
+    if top == clear and bottom == clear:
+        return " ", None
+    if bottom == clear:
+        return _UPPER, Style(color=data.PALETTE[top])
+    if top == clear:
+        return _LOWER, Style(color=data.PALETTE[bottom])
+    return _UPPER, Style(color=data.PALETTE[top], bgcolor=data.PALETTE[bottom])
+
+
 @lru_cache(maxsize=None)
 def _frame_lines(which: str):
     """Pre-built rich Segments for every frame, one list per terminal row."""
     from rich.segment import Segment
-    from rich.style import Style
 
     w, h, _ = _SIZES[which]
-    styles: dict[tuple[int, int], Style] = {}
+    cells: dict[tuple[int, int], Segment] = {}
     out = []
     for frame in _frames(which):
         lines = []
@@ -48,10 +64,10 @@ def _frame_lines(which: str):
             row = []
             for x in range(w):
                 key = (frame[y * w + x], frame[(y + 1) * w + x])
-                style = styles.get(key)
-                if style is None:
-                    style = styles[key] = Style(color=data.PALETTE[key[0]], bgcolor=data.PALETTE[key[1]])
-                row.append(Segment(_HALF, style))
+                seg = cells.get(key)
+                if seg is None:
+                    seg = cells[key] = Segment(*_cell(*key))
+                row.append(seg)
             lines.append(row)
         out.append(lines)
     return out
@@ -67,16 +83,45 @@ def size(which: str = "full") -> tuple[int, int]:
     return w, h // 2
 
 
-def pick_size(console, reserve_rows: int = 4) -> str | None:
-    """The largest size that fits this console, or None if neither does,
-    output isn't an interactive terminal, or the terminal can't show more
-    than the basic 16 colours (the art collapses to a black blob there)."""
-    if not console.is_terminal or console.color_system not in ("256", "truecolor"):
-        return None
+RESERVE_ROWS = 3  # the status line under the mascot, plus a little slack
+
+
+def can_draw(console) -> bool:
+    """An interactive terminal with at least 256 colours -- on basic 16-colour
+    terminals the art collapses into a black blob."""
+    return console.is_terminal and console.color_system in ("256", "truecolor")
+
+
+def fits(console, which: str, extra_cols: int = 0, reserve_rows: int = RESERVE_ROWS) -> bool:
+    """Whether size `which`, plus `extra_cols` of other content beside it and
+    `reserve_rows` of content around it, fits this console."""
+    cols, rows = size(which)
+    return can_draw(console) and console.width >= cols + extra_cols and console.height >= rows + reserve_rows
+
+
+def pick_size(console, reserve_rows: int = RESERVE_ROWS, extra_cols: int = 0) -> str | None:
+    """The largest size that fits this console alongside `extra_cols` of
+    other content, or None if neither does (or it can't draw at all)."""
     for which in ("full", "small"):
-        cols, rows = size(which)
-        if console.width >= cols and console.height >= rows + reserve_rows:
+        if fits(console, which, extra_cols, reserve_rows):
             return which
+    return None
+
+
+def why_not(console, reserve_rows: int = RESERVE_ROWS) -> str | None:
+    """A one-line reason the mascot can't be shown on this interactive
+    terminal, or None when it can (or when output isn't a terminal at all,
+    where there's nobody to explain it to)."""
+    if not console.is_terminal:
+        return None
+    if console.color_system not in ("256", "truecolor"):
+        return "Nergal stays hidden: this terminal only shows basic colours (he needs 256-colour or truecolor)."
+    if pick_size(console, reserve_rows) is None:
+        cols, rows = size("small")
+        return (
+            f"Nergal stays hidden: he needs a terminal at least {cols}x{rows + reserve_rows}; "
+            f"this one is {console.width}x{console.height}."
+        )
     return None
 
 
