@@ -49,6 +49,10 @@ flowchart LR
 
 ## Verified against real agents, not just a mock
 
+**Full run with proof: [docs/RESULTS.md](docs/RESULTS.md)** — every demo
+campaign, live A2A / ChatGPT-App / MCP targets, and a cross-model pass, with
+verbatim transcripts from the saved traces.
+
 | Target | Framework | Model | Result |
 |---|---|---|---|
 | `EchoAdapter` | none (naive demo target) | — | **0/5 survived** — every built-in payload leaks the secret |
