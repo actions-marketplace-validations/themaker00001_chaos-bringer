@@ -3,7 +3,9 @@ requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "chaos-agents"
+# PyPI distribution name (chaos-agents was already taken). The import package
+# and the CLI command stay `chaos_agents` / `chaos-agents` on purpose.
+name = "chaos-bringer"
 version = "0.1.0"
 description = "A chaos monkey for agent frameworks: fuzz, fault-inject, and red-team any agent for free."
 readme = "README.md"
