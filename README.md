@@ -15,7 +15,7 @@ to Nergal — the Mesopotamian god of plague and the underworld, on loan as
 the project's patron deity for what happens to an agent's assumptions here.
 
 <p align="center">
-  <img src="docs/nergal.gif" alt="Nergal, a green horned demon, stirring a glowing cauldron with a scythe until the poison spills over the rim" width="432">
+  <img src="https://raw.githubusercontent.com/themaker00001/chaos-bringer/main/docs/nergal.gif" alt="Nergal, a green horned demon, stirring a glowing cauldron with a scythe until the poison spills over the rim" width="432">
 </p>
 
 That's Nergal. While a `--fancy` campaign runs, he stirs his cauldron live in
@@ -23,7 +23,7 @@ your terminal, one sprite pixel per half-block character, until the brew
 spills.
 
 <p align="center">
-  <img src="docs/demo-echo.svg" alt="chaos-bringer catching a naive agent leaking a secret under prompt injection" width="720">
+  <img src="https://raw.githubusercontent.com/themaker00001/chaos-bringer/main/docs/demo-echo.png" alt="chaos-bringer catching a naive agent leaking a secret under prompt injection" width="720">
 </p>
 
 ## What it actually is
