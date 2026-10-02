@@ -36,14 +36,18 @@ register the exact same way:
 flowchart LR
     V[Chaos Vector] -->|adversarial payload| P((Interceptor Proxy))
     P <-->|LLM / tool / MCP calls| T[Target Agent]
-    P -->|full trace| J[Judge]
-    J --> C[(Corpus)]
+    P -->|reply + tool calls| O[Observation]
+    O --> J[Judge]
+    J -->|Finding| C[(Corpus)]
     M[Model Provider\ndefault: Ollama] -.optional.-> V
     M -.optional.-> J
 ```
 
+The full pipeline: **Attack → Agent → Observation → Judge → Finding → Fingerprint → Minimize → Corpus → Regression → CI.**
+
 - **Model Provider** — generates mutated payloads and, optionally, judges. Default: **Ollama**, local and free.
 - **Target Adapter** — connects to the system under test. **generic_proxy** intercepts any OpenAI/Ollama-shaped chat call, so most frameworks need zero adapter code; **ollama_chat** points straight at a local model that holds a conversation (no framework wiring), and it carries state, so **multi-turn** attacks that build across turns work against it; **mcp_fault** is a fault-injecting MCP proxy that poisons, errors, delays or mangles tool results on their way back to an agent; **a2a** attacks an Agent-to-Agent agent over JSON-RPC; **chatgpt_app** attacks a ChatGPT App (an MCP server) by calling its tools with hostile arguments; **sandbox** is a contained environment for computer-use agents — a local model acts in a small world where the attack is planted in a page it reads, exfiltration is recorded but never really sent, and the sandbox detects compromise from ground truth.
+- **Observation** — the stage between agent and judge. An agent doesn't only leak by *saying* the secret; it leaks by *doing* — calling `send_email(body=secret)`, `http_post(url, data=secret)`. An Observation captures the whole invocation (reply, every tool call, errors, latency), and the judge rules on that, so a canary that left through a tool argument is caught even when the reply looks clean. An adapter that only has text keeps returning a string; it's wrapped into an Observation automatically.
 - **Chaos Vector** — where the attacks come from. **static_corpus** replays a fixed payload list; **llm** has a model write fresh attacks from a goal you state; **multiturn** escalates over several turns; **indirect** buries the attack inside tool output the agent trusts; **mutation** fuzzes — it multiplies a few seeds into many variants (encoding, authority framing, structure, language) for a stress test, zero-cost and model-free. All free on Ollama, all pointable at your own agent.
 - **Judge** — decides pass/fail/severity. **rule-based** (regex / forbidden-substring, no model call) for clean cases; **llm** — a local model reads a plain-English policy and catches the fuzzier failures (paraphrased leaks, unsafe compliance) the rules miss, still free on Ollama.
 

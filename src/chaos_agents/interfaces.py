@@ -9,9 +9,12 @@ needs to import or subclass anything from this package.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 from chaos_agents import taxonomy
+
+if TYPE_CHECKING:
+    from chaos_agents.observation import Observation
 
 # a verdict is one of three outcomes, kept distinct on purpose: a flaky or
 # failed trial must never be scored as a clean pass (V2 blueprint).
@@ -112,4 +115,25 @@ class Judge(Protocol):
     """Decides pass/fail/severity for one (payload, response) exchange."""
 
     def evaluate(self, payload: str, response: str) -> Verdict:
+        ...
+
+
+@runtime_checkable
+class ObservingTarget(Protocol):
+    """An adapter that returns a structured `Observation` -- the agent's full
+    observable behaviour (reply, tool calls, error, latency), not just the
+    reply text. Optional: an adapter that only has text keeps implementing
+    `invoke`, and the orchestrator wraps its string into an Observation."""
+
+    def observe(self, payload: str) -> "Observation":
+        ...
+
+
+@runtime_checkable
+class ObservingJudge(Protocol):
+    """A judge that rules on a whole `Observation` and can inspect tool calls,
+    not just the reply text. Optional: a text-only judge keeps implementing
+    `evaluate`, and is handed the flattened reply-plus-tool-activity text."""
+
+    def judge(self, payload: str, observation: "Observation") -> Verdict:
         ...

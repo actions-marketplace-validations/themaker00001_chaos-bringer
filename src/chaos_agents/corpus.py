@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 import secrets
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -31,6 +31,9 @@ class Record:
     impact: str = ""
     fingerprint: str = ""        # stable finding identity (sha256:...)
     minimized_payload: str = ""  # the shortest payload that still reproduces, when minimized
+    # Observation stage: what the agent *did*, not just the reply text in `response`
+    tool_calls: list[dict[str, Any]] = field(default_factory=list)  # name/arguments/result per call
+    latency_ms: float = 0.0      # how long the target took to answer this trial
 
 
 class Corpus:

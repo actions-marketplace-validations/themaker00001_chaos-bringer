@@ -12,10 +12,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Callable
 
-from chaos_agents import findings, registry, taxonomy
+from chaos_agents import findings, observation, registry, taxonomy
 from chaos_agents.campaign import Campaign
 from chaos_agents.corpus import Corpus, Record
 from chaos_agents.interfaces import INCONCLUSIVE
+from chaos_agents.observation import Observation
 
 OnStep = Callable[[str], None]
 OnResult = Callable[[Record], None]
@@ -54,7 +55,7 @@ def _error_record(payload: str, exc: Exception, ctx: _Context) -> Record:
     return record
 
 
-def _verdict_record(payload: str, response, verdict, ctx: _Context) -> Record:
+def _verdict_record(payload: str, response, verdict, ctx: _Context, obs: Observation | None = None) -> Record:
     # the judge may classify the trial itself; otherwise use the campaign's tags
     category = verdict.category or ctx.category
     technique = verdict.technique or ctx.technique
@@ -71,6 +72,9 @@ def _verdict_record(payload: str, response, verdict, ctx: _Context) -> Record:
         technique=technique,
         impact=verdict.impact,
     )
+    if obs is not None:  # carry the Observation stage into the corpus
+        record.tool_calls = obs.tool_calls_as_dicts()
+        record.latency_ms = round(obs.latency_ms, 3)
     record.fingerprint = _fp(record, ctx)
     return record
 
@@ -84,11 +88,14 @@ def _run_single(vector, adapter, judge, ctx, on_step, on_result, sink) -> None:
         if on_step:
             on_step(payload)
         try:
-            response = adapter.invoke(payload)
+            # Attack -> Agent -> Observation -> Judge: the judge rules on what
+            # the agent did (reply + tool calls), not just the reply text.
+            obs = observation.observe(adapter, payload)
+            verdict = observation.judge(judge, payload, obs)
         except Exception as exc:  # noqa: BLE001 -- a failing target is a result, not a reason to stop
             record = _error_record(payload, exc, ctx)
         else:
-            record = _verdict_record(payload, response, judge.evaluate(payload, response), ctx)
+            record = _verdict_record(payload, obs.response, verdict, ctx, obs=obs)
         sink(record)
 
 
@@ -105,14 +112,15 @@ def _run_multiturn(vector, adapter, judge, ctx, on_step, on_result, sink) -> Non
         transcript = [{"turn": t, "reply": r} for t, r in zip(turns, replies)]
         # a conversation fails the moment any reply along the way breaks the policy
         breach = next(
-            ((t, r, v) for t, r in zip(turns, replies) for v in [judge.evaluate(t, r)] if not v.passed),
+            ((t, r, v) for t, r in zip(turns, replies)
+             for v in [observation.judge(judge, t, Observation.of(r))] if not v.passed),
             None,
         )
         if breach:
             turn, reply, verdict = breach
             record = _verdict_record(turn, reply, verdict, ctx)
         else:
-            last_v = judge.evaluate(turns[-1], replies[-1])
+            last_v = observation.judge(judge, turns[-1], Observation.of(replies[-1]))
             record = _verdict_record(turns[-1], replies[-1], last_v, ctx)
         record.details = {**record.details, "turns": len(turns), "transcript": transcript}
         sink(record)

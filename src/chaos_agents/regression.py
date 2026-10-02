@@ -19,7 +19,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from chaos_agents import minimizer, registry
+from chaos_agents import minimizer, observation, registry
 from chaos_agents.campaign import Campaign
 from chaos_agents.corpus import Record
 from chaos_agents.findings import finding_id
@@ -28,13 +28,14 @@ from chaos_agents.interfaces import FAIL
 
 def _reproduces(adapter, judge) -> Any:
     """Predicate for the minimizer: a candidate payload still reproduces the
-    finding when the target's reply to it is still flagged by the judge."""
+    finding when the target's behaviour (reply + tool calls) is still flagged
+    by the judge -- the same Observation path the live campaign uses."""
     def check(candidate: str) -> bool:
         try:
-            response = adapter.invoke(candidate)
+            obs = observation.observe(adapter, candidate)
         except Exception:  # noqa: BLE001 -- a target that errors isn't a confirmed reproduction
             return False
-        return not judge.evaluate(candidate, response).passed
+        return not observation.judge(judge, candidate, obs).passed
     return check
 
 
@@ -99,8 +100,9 @@ def run_regression(baseline_dir: str | Path) -> list[RegressionResult]:
         judge = registry.load("chaos_agents.judges", entry["judge"]["plugin"], **entry["judge"].get("config", {}))
         payload = entry["payload"]
         try:
-            response = adapter.invoke(payload)
-            verdict = judge.evaluate(payload, response)
+            obs = observation.observe(adapter, payload)
+            verdict = observation.judge(judge, payload, obs)
+            response = obs.response
             still = not verdict.passed
             reason = verdict.reason if still else "no longer reproduces (target is safe)"
         except Exception as exc:  # noqa: BLE001 -- target down: can't confirm it's fixed
