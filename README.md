@@ -119,6 +119,40 @@ steps aside. `--no-mascot` turns him off. Add `--svg path.svg` to also save
 the run's narration and table as a terminal-styled image, which is how
 `docs/demo-echo.svg` above was made.
 
+## Use it as a CI gate
+
+Gate every change to your agent on an attack campaign: a confirmed finding
+fails the build, and the SARIF report lands in your repo's **Security** tab.
+This repo ships a composite GitHub Action — point it at a campaign that targets
+your agent:
+
+```yaml
+# .github/workflows/agent-security.yml
+permissions:
+  contents: read
+  security-events: write   # for the SARIF upload below
+jobs:
+  chaos:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - id: gate
+        uses: themaker00001/chaos-bringer@v1
+        with:
+          campaign: campaigns/my_agent.yaml
+          fail-on-finding: true          # default; set false to report without blocking
+      - name: Publish findings to the Security tab
+        if: always()                      # upload even when the gate failed
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: ${{ steps.gate.outputs.sarif }}
+```
+
+The gate exits non-zero **only** on a confirmed finding (`status=fail`); a
+target that merely errored is inconclusive and never fails the build on its
+own. Prefer another runner? `chaos-agents run <campaign> --format sarif --output
+chaos.sarif` does the same thing anywhere — the exit code is the gate.
+
 ## Writing a plugin
 
 Implement the method(s) the surface asks for and register an entry-point in

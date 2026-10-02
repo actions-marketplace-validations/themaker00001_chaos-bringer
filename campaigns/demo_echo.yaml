@@ -1,6 +1,8 @@
 # Zero-dependency smoke test: no network, no model, no API key.
 # `chaos-agents run campaigns/demo_echo.yaml`
 name: demo-echo
+category: sensitive_data
+technique: secret_extraction
 
 adapter:
   plugin: echo

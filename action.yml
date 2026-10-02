@@ -1,0 +1,91 @@
+name: "Chaos Bringer security gate"
+description: "Run Chaos Bringer attack campaigns against your AI agent and fail the build on a confirmed finding."
+author: "themaker00001"
+branding:
+  icon: "shield"
+  color: "green"
+
+inputs:
+  campaign:
+    description: "Path to the campaign YAML to run against your agent."
+    required: true
+  python-version:
+    description: "Python version to run on."
+    required: false
+    default: "3.12"
+  install:
+    description: "pip requirement for the tool. Default: the published package. Use '.' or '.[rich]' to gate a checkout of this repo."
+    required: false
+    default: "chaos-bringer"
+  output:
+    description: "Where to write the SARIF report (upload it with github/codeql-action/upload-sarif to populate the Security tab)."
+    required: false
+    default: "chaos-results.sarif"
+  json-output:
+    description: "Where to write the full JSON report (optional; empty = skip)."
+    required: false
+    default: "chaos-results.json"
+  runs-dir:
+    description: "Where to write the JSONL corpus of this run."
+    required: false
+    default: "runs"
+  fail-on-finding:
+    description: "Fail the step when a confirmed finding (status=fail) is produced. Set false to report without gating."
+    required: false
+    default: "true"
+
+outputs:
+  exit-code:
+    description: "0 if the agent held, 1 if a confirmed finding was produced."
+    value: ${{ steps.run.outputs.exit-code }}
+  findings:
+    description: "Number of confirmed findings (SARIF results)."
+    value: ${{ steps.run.outputs.findings }}
+  sarif:
+    description: "Path to the SARIF report produced."
+    value: ${{ inputs.output }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ inputs.python-version }}
+
+    - name: Install Chaos Bringer
+      shell: bash
+      run: |
+        python -m pip install --upgrade pip
+        python -m pip install ${{ inputs.install }}
+
+    - name: Run campaign
+      id: run
+      shell: bash
+      run: |
+        # capture the gate's exit code without aborting the step, so the SARIF
+        # is always written and a caller can still upload it on failure.
+        set +e
+        chaos-agents run "${{ inputs.campaign }}" \
+          --runs-dir "${{ inputs.runs-dir }}" \
+          --format sarif --output "${{ inputs.output }}"
+        code=$?
+        set -e
+        if [ -n "${{ inputs.json-output }}" ]; then
+          chaos-agents run "${{ inputs.campaign }}" \
+            --runs-dir "${{ inputs.runs-dir }}" \
+            --format json --output "${{ inputs.json-output }}" || true
+        fi
+        n=$(python -c "import json; print(len(json.load(open('${{ inputs.output }}'))['runs'][0]['results']))" 2>/dev/null || echo 0)
+        echo "exit-code=$code" >> "$GITHUB_OUTPUT"
+        echo "findings=$n" >> "$GITHUB_OUTPUT"
+        echo "Chaos Bringer: $n confirmed finding(s); gate exit code $code"
+
+    - name: Gate on findings
+      shell: bash
+      run: |
+        if [ "${{ inputs.fail-on-finding }}" = "true" ] && [ "${{ steps.run.outputs.exit-code }}" != "0" ]; then
+          echo "::error title=Chaos Bringer::${{ steps.run.outputs.findings }} confirmed finding(s) — failing the security gate."
+          exit 1
+        fi
+        echo "Security gate passed (fail-on-finding=${{ inputs.fail-on-finding }})."

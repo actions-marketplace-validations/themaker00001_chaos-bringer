@@ -19,19 +19,50 @@ from typing import Any
 import requests
 
 from chaos_agents.interfaces import TargetError
+from chaos_agents.observation import Observation, ToolCall
+
+
+def _message_of(data: dict[str, Any]) -> dict[str, Any]:
+    """The assistant message object, across Ollama- and OpenAI-shaped replies."""
+    if not isinstance(data, dict):
+        return {}
+    if isinstance(data.get("message"), dict):
+        return data["message"]
+    try:
+        msg = data["choices"][0]["message"]
+        return msg if isinstance(msg, dict) else {}
+    except (KeyError, IndexError, TypeError):
+        return {}
 
 
 def _extract_content(data: dict[str, Any]) -> str:
     """Best-effort content extraction across Ollama- and OpenAI-shaped responses."""
-    try:
-        return data["message"]["content"]
-    except (KeyError, TypeError):
-        pass
-    try:
-        return data["choices"][0]["message"]["content"]
-    except (KeyError, IndexError, TypeError):
-        pass
+    content = _message_of(data).get("content")
+    if isinstance(content, str):
+        return content
     return json.dumps(data)
+
+
+def _extract_tool_calls(data: dict[str, Any]) -> list[ToolCall]:
+    """Pull tool/function calls out of the reply (both provider shapes).
+
+    This is the point of the Observation stage: an agent that leaks by *calling
+    a tool* -- send_email(body=<secret>), http_post(data=<secret>) -- shows up
+    here even when the text content is empty or looks clean."""
+    raw_calls = _message_of(data).get("tool_calls") or []
+    calls: list[ToolCall] = []
+    for call in raw_calls:
+        if not isinstance(call, dict):
+            continue
+        fn = call.get("function", call)
+        args = fn.get("arguments", "")
+        if isinstance(args, str):
+            try:
+                args = json.loads(args)  # OpenAI sends arguments as a JSON string
+            except (ValueError, TypeError):
+                pass  # not valid JSON -- keep the raw string so nothing is lost
+        calls.append(ToolCall(name=str(fn.get("name", "")), arguments=args))
+    return calls
 
 
 class GenericProxyAdapter:
@@ -122,9 +153,11 @@ class GenericProxyAdapter:
         self.start()
         self._armed_payload = payload
 
-    def invoke(self, payload: str) -> str:
-        """Arm `payload` as the injected message, send a seed request through
-        the proxy, and return the (possibly compromised) upstream reply."""
+    def _request(self, payload: str) -> dict[str, Any]:
+        """Arm `payload`, send a seed request through the proxy, and return the
+        (possibly compromised) upstream reply body. Raises TargetError if the
+        target never answered -- so its error JSON is never handed to the judge
+        as a reply that "survived" the payload."""
         self.arm(payload)
         seed = {"messages": [{"role": "user", "content": "What can you help me with today?"}]}
         # outlive the proxy's own upstream timeout, so a slow model comes back
@@ -132,10 +165,23 @@ class GenericProxyAdapter:
         resp = requests.post(self.url, json=seed, timeout=self.timeout + 10)
         body = resp.json()
         if resp.status_code >= 400:
-            # the target never answered -- don't hand its error JSON to the
-            # judge as if it were a reply that "survived" the payload
             raise TargetError(f"upstream returned HTTP {resp.status_code}: {body.get('error', body)}")
-        return _extract_content(body)
+        return body
+
+    def invoke(self, payload: str) -> str:
+        """Send the attack through the proxy and return the upstream reply text."""
+        return _extract_content(self._request(payload))
+
+    def observe(self, payload: str) -> Observation:
+        """The richer Observation path: capture the reply AND the tool calls the
+        agent made, so a leak through a tool argument is visible to the judge
+        even when the reply text is clean."""
+        body = self._request(payload)
+        return Observation(
+            response=_extract_content(body),
+            tool_calls=_extract_tool_calls(body),
+            raw={"upstream_status": "ok"},
+        )
 
     def __del__(self) -> None:
         self.stop()
