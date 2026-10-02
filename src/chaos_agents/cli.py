@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import argparse
 import sys
+from pathlib import Path
 
 from chaos_agents import registry, report
 from chaos_agents.campaign import Campaign, CampaignError
 from chaos_agents.corpus import Corpus
+from chaos_agents.interfaces import FAIL
 from chaos_agents.orchestrator import run_campaign
 
 
@@ -36,8 +38,9 @@ def _cmd_run(args: argparse.Namespace) -> int:
         print(f"invalid campaign: {exc}", file=sys.stderr)
         return 2
     corpus = Corpus(campaign.name, root=args.runs_dir)
+    fmt = args.format
 
-    if args.fancy:
+    if args.fancy and fmt == "terminal":
         from rich.console import Console
 
         from chaos_agents import report_rich
@@ -52,10 +55,22 @@ def _cmd_run(args: argparse.Namespace) -> int:
             print(f"\nSVG written to: {args.svg}")
     else:
         records = run_campaign(campaign, corpus)
-        print(report.render(campaign.name, records))
+        if fmt == "terminal":
+            print(report.render(campaign.name, records))
 
-    print(f"Full trace: {corpus.results_path}")
-    return 1 if any(not r.passed for r in records) else 0
+    if fmt != "terminal":
+        from chaos_agents import export
+
+        rendered = export.FORMATS[fmt](campaign.name, records, run_id=corpus.run_id)
+        if args.output:
+            Path(args.output).write_text(rendered)
+            print(f"{fmt} written to: {args.output}", file=sys.stderr)
+        else:
+            print(rendered)
+
+    print(f"Full trace: {corpus.results_path}", file=sys.stderr)
+    # exit non-zero only for a confirmed finding -- not for inconclusive/errored trials
+    return 1 if any(r.status == FAIL for r in records) else 0
 
 
 def _cmd_plugins(args: argparse.Namespace) -> int:
@@ -77,6 +92,9 @@ def main(argv: list[str] | None = None) -> int:
     run_p.add_argument("--fancy", action="store_true", help="render with rich (requires: pip install chaos-agents[rich])")
     run_p.add_argument("--svg", metavar="PATH", help="also save the --fancy report as a terminal-styled SVG")
     run_p.add_argument("--no-mascot", action="store_true", help="with --fancy, skip the animated Nergal and show only the status line")
+    run_p.add_argument("--format", choices=["terminal", "json", "sarif", "junit"], default="terminal",
+                       help="output format (default: terminal). json/sarif/junit are for CI.")
+    run_p.add_argument("--output", metavar="PATH", help="write the --format output to a file instead of stdout")
     run_p.set_defaults(func=_cmd_run)
 
     validate_p = sub.add_parser("validate", help="check a campaign file without running it")
