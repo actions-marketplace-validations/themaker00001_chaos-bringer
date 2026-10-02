@@ -30,6 +30,7 @@ class Record:
     technique: str = ""
     impact: str = ""
     fingerprint: str = ""        # stable finding identity (sha256:...)
+    minimized_payload: str = ""  # the shortest payload that still reproduces, when minimized
 
 
 class Corpus:

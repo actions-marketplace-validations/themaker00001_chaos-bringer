@@ -129,15 +129,24 @@ my-judge = "my_package.judges:MyJudge"
 
 ## Status
 
-Working v1. Built and tested: the plugin architecture; single-shot,
-multi-turn, indirect and LLM-generated attacks; rule-based and LLM judging;
-targets via generic proxy, a direct local model, MCP fault injection, A2A,
-ChatGPT Apps, and a contained sandbox for computer-use agents; failing
-targets recorded as findings.
+Published on PyPI (`pip install chaos-bringer`). Built and tested: the plugin
+architecture; single-shot, multi-turn, indirect, LLM-generated, and **mutation
+(fuzzing)** attacks; rule-based and LLM judging; targets via generic proxy, a
+direct local model, MCP fault injection, A2A, ChatGPT Apps, and a contained
+sandbox for computer-use agents; failing targets recorded as inconclusive, not
+false findings.
+
+**Toward repeatable security infrastructure (V2):** an OWASP-aligned attack
+taxonomy; findings carry a status (pass / fail / inconclusive), severity,
+confidence, and a stable fingerprint; campaign validation (`chaos-agents
+validate`); CI outputs (`run --format json|sarif|junit`, exit code on confirmed
+findings); and a **regression corpus** — promote a finding to a minimized
+reproducer (`run --promote DIR --minimize`) and replay it later to catch the
+vuln coming back (`chaos-agents regression DIR`).
 
 The sandbox is a simulation of the computer-use archetype (a local model as
 the stand-in agent), not a live integration with Grok Bot or OpenAI Dots,
-which expose no public API to drive. Still to come: publishing to PyPI.
+which expose no public API to drive.
 
 ## Credits
 
