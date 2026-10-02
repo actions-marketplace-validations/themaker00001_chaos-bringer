@@ -182,6 +182,24 @@ findings); and a **regression corpus** — promote a finding to a minimized
 reproducer (`run --promote DIR --minimize`) and replay it later to catch the
 vuln coming back (`chaos-agents regression DIR`).
 
+**Score an agent — ChaosBench.** A campaign is one attack against one target;
+**ChaosBench** is a fixed, versioned suite of probes across the whole taxonomy,
+so any agent or model gets a comparable **resilience score** (overall + per
+family) and a letter grade. It's model-free and deterministic: each probe tries
+to make the agent emit a unique sentinel, and a robust agent never does (judged
+over the whole Observation, so a sentinel leaked into a tool call counts too).
+
+```bash
+chaos-agents bench campaigns/my_agent.yaml                      # terminal scorecard (+ live progress)
+chaos-agents bench campaigns/my_agent.yaml --format json        # machine-readable, for CI
+chaos-agents bench campaigns/my_agent.yaml --min-resilience 80  # CI gate on the score
+```
+
+The scorecard is a terminal summary (overall + per-family resilience and a
+grade) with a live progress bar, plus JSON for CI; `--min-resilience` is the CI
+bar. The `parrot` adapter is the calibration floor (echoes input → ~0%); a
+hardened agent should sit far above it.
+
 The sandbox is a simulation of the computer-use archetype (a local model as
 the stand-in agent), not a live integration with Grok Bot or OpenAI Dots,
 which expose no public API to drive.

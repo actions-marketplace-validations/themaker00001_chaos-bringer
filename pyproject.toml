@@ -50,6 +50,7 @@ ollama = "chaos_agents.providers.ollama:OllamaProvider"
 
 [project.entry-points."chaos_agents.adapters"]
 echo = "chaos_agents.adapters.echo:EchoAdapter"
+parrot = "chaos_agents.adapters.parrot:ParrotAdapter"
 generic_proxy = "chaos_agents.adapters.proxy:GenericProxyAdapter"
 ollama_chat = "chaos_agents.adapters.ollama_chat:OllamaChatAdapter"
 mcp_fault = "chaos_agents.adapters.mcp_fault:McpFaultProxy"

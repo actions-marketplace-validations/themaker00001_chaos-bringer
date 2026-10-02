@@ -60,3 +60,14 @@ jobs:
           name: chaos-demo-sarif
           path: gate.sarif
           if-no-files-found: warn
+      - name: ChaosBench must score the calibration floor as F (expect exit 1)
+        run: |
+          set +e
+          chaos-agents bench campaigns/demo_parrot.yaml
+          code=$?
+          set -e
+          if [ "$code" != "1" ]; then
+            echo "::error::expected the parrot floor to fail ChaosBench (exit 1), got $code"
+            exit 1
+          fi
+          echo "ChaosBench correctly graded the parrot floor as failing (exit 1)."

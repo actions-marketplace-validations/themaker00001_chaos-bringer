@@ -83,6 +83,63 @@ def _cmd_run(args: argparse.Namespace) -> int:
     return 1 if any(r.status == FAIL for r in records) else 0
 
 
+def _bench_progress(total: int):
+    """A minimal carriage-return progress bar on stderr, one tick per probe."""
+    from chaos_agents.interfaces import FAIL as _F
+    from chaos_agents.interfaces import PASS as _P
+
+    state = {"done": 0}
+    width = 24
+
+    def on_probe(outcome) -> None:
+        state["done"] += 1
+        done = state["done"]
+        filled = int(width * done / total) if total else width
+        bar = "#" * filled + "-" * (width - filled)
+        mark = {_P: "held", _F: "LEAK"}.get(outcome.status, "skip")
+        sys.stderr.write(f"\rChaosBench [{bar}] {done}/{total}  {outcome.probe.id:<6} {mark:<4}")
+        sys.stderr.flush()
+        if done == total:
+            sys.stderr.write("\n")
+            sys.stderr.flush()
+
+    return on_probe
+
+
+def _cmd_bench(args: argparse.Namespace) -> int:
+    from chaos_agents import benchmark, benchreport, registry
+
+    if args.suite not in benchmark.SUITES:
+        print(f"unknown suite {args.suite!r}; available: {', '.join(benchmark.SUITES)}", file=sys.stderr)
+        return 2
+    try:
+        campaign = Campaign.from_yaml(args.campaign)
+    except CampaignError as exc:
+        print(f"invalid campaign: {exc}", file=sys.stderr)
+        return 2
+
+    adapter = registry.load("chaos_agents.adapters", campaign.adapter.plugin, **campaign.adapter.config)
+    suite = benchmark.SUITES[args.suite]
+    # a live progress bar while probes run (useful when the target is a real
+    # model and each probe takes a second or two); only when stderr is a TTY,
+    # so CI logs and piped output stay clean.
+    progress = _bench_progress(len(suite.probes)) if sys.stderr.isatty() else None
+    card = benchmark.run_benchmark(suite, adapter, on_probe=progress)
+
+    rendered = benchreport.FORMATS[args.format](card)
+    if args.output:
+        Path(args.output).write_text(rendered)
+        print(f"{args.format} scorecard written to: {args.output}", file=sys.stderr)
+    else:
+        print(rendered)
+
+    # gate: --min-resilience sets the bar; otherwise any failed probe is non-zero
+    if args.min_resilience is not None:
+        r = card.resilience
+        return 1 if (r is not None and r < args.min_resilience) else 0
+    return 1 if card.counts[FAIL] > 0 else 0
+
+
 def _cmd_regression(args: argparse.Namespace) -> int:
     from chaos_agents import regression
 
@@ -116,6 +173,15 @@ def main(argv: list[str] | None = None) -> int:
     run_p.add_argument("--promote", metavar="DIR", help="promote confirmed findings into a regression corpus directory")
     run_p.add_argument("--minimize", action="store_true", help="with --promote, shrink each finding to a minimal reproducer first")
     run_p.set_defaults(func=_cmd_run)
+
+    bench_p = sub.add_parser("bench", help="score a target against a ChaosBench suite (the adapter comes from a campaign file)")
+    bench_p.add_argument("campaign", help="a campaign YAML; only its adapter block is used to build the target")
+    bench_p.add_argument("--suite", default="chaos-bench-core", help="benchmark suite to run (default: chaos-bench-core)")
+    bench_p.add_argument("--format", choices=["text", "json"], default="text", help="scorecard format (default: text)")
+    bench_p.add_argument("--output", metavar="PATH", help="write the scorecard to a file instead of stdout")
+    bench_p.add_argument("--min-resilience", type=float, metavar="PCT",
+                         help="gate: exit non-zero if resilience is below PCT (default gate: any failed probe)")
+    bench_p.set_defaults(func=_cmd_bench)
 
     reg_p = sub.add_parser("regression", help="re-run a regression corpus; non-zero if any reproducer still fires")
     reg_p.add_argument("baseline", help="path to a regression corpus directory (as written by run --promote)")
