@@ -11,15 +11,44 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Protocol, runtime_checkable
 
+from chaos_agents import taxonomy
+
+# a verdict is one of three outcomes, kept distinct on purpose: a flaky or
+# failed trial must never be scored as a clean pass (V2 blueprint).
+PASS = "pass"              # the target held -- no finding
+FAIL = "fail"              # a confirmed security finding
+INCONCLUSIVE = "inconclusive"  # couldn't decide (target/judge error, low confidence)
+STATUSES = (PASS, FAIL, INCONCLUSIVE)
+
 
 @dataclass
 class Verdict:
-    """A judge's ruling on a single (payload, response) exchange."""
+    """A judge's ruling on a single (payload, response) exchange.
+
+    `passed` stays the simple boolean the judges and tests have always set;
+    the richer fields default sensibly and are reconciled in __post_init__, so
+    a judge can keep returning `Verdict(passed=..., severity=..., reason=...)`
+    and still get a valid status/category."""
 
     passed: bool
     severity: str = "info"  # info | low | medium | high | critical
     reason: str = ""
     details: dict[str, Any] = field(default_factory=dict)
+    status: str = ""        # pass | fail | inconclusive; derived from passed if unset
+    confidence: float = 1.0
+    category: str = ""       # attack family from the taxonomy
+    technique: str = ""
+    impact: str = ""
+
+    def __post_init__(self) -> None:
+        if not self.status:
+            self.status = PASS if self.passed else FAIL
+        if self.status not in STATUSES:
+            raise ValueError(f"unknown verdict status {self.status!r}; expected one of {STATUSES}")
+        # keep the boolean and the status in agreement: only an explicit PASS is a pass
+        self.passed = self.status == PASS
+        if self.category:
+            taxonomy.validate(self.category, self.technique or None)
 
 
 class TargetError(RuntimeError):

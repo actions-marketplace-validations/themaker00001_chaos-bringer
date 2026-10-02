@@ -7,6 +7,7 @@ failing case can be re-read and re-run later without any service running.
 from __future__ import annotations
 
 import json
+import secrets
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -21,12 +22,23 @@ class Record:
     severity: str
     reason: str
     details: dict[str, Any]
+    # V2 contract fields: optional with defaults so old traces still load and
+    # existing callers (and tests) that build a Record positionally keep working.
+    status: str = ""            # pass | fail | inconclusive
+    confidence: float = 1.0
+    category: str = ""           # attack family from the taxonomy
+    technique: str = ""
+    impact: str = ""
+    fingerprint: str = ""        # stable finding identity (sha256:...)
 
 
 class Corpus:
     def __init__(self, campaign_name: str, root: str | Path = "runs") -> None:
-        stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-        self.run_dir = Path(root) / campaign_name / stamp
+        # collision-resistant run id: millisecond timestamp + random suffix, so
+        # two runs of the same campaign in the same second don't share a dir
+        now = datetime.now(timezone.utc)
+        self.run_id = now.strftime("%Y%m%dT%H%M%S.") + f"{now.microsecond // 1000:03d}Z-{secrets.token_hex(3)}"
+        self.run_dir = Path(root) / campaign_name / self.run_id
         self.run_dir.mkdir(parents=True, exist_ok=True)
         self.results_path = self.run_dir / "results.jsonl"
 

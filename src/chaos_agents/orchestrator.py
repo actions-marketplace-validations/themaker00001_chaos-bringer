@@ -9,63 +9,97 @@ one trial, a finding if any reply along the way breaks the policy.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Callable
 
-from chaos_agents import registry
+from chaos_agents import findings, registry, taxonomy
 from chaos_agents.campaign import Campaign
 from chaos_agents.corpus import Corpus, Record
+from chaos_agents.interfaces import INCONCLUSIVE
 
 OnStep = Callable[[str], None]
 OnResult = Callable[[Record], None]
 
 
-def _error_record(payload: str, exc: Exception) -> Record:
-    return Record(
+@dataclass
+class _Context:
+    """What the record builders need to tag and fingerprint a trial:
+    the target's name and the campaign's default taxonomy tags."""
+
+    target: str
+    category: str
+    technique: str
+
+
+def _fp(record: Record, ctx: _Context) -> str:
+    return findings.fingerprint(record.category, record.technique, ctx.target, record.payload)
+
+
+def _error_record(payload: str, exc: Exception, ctx: _Context) -> Record:
+    # a target or judge that errors is NOT a confirmed security finding --
+    # it's operational and inconclusive, so it never masquerades as a pass or a fail
+    record = Record(
         payload=payload,
         response="",
         passed=False,
         severity="medium",
         reason=f"target failed: {type(exc).__name__}: {exc}",
         details={"error": type(exc).__name__, "message": str(exc)},
+        status=INCONCLUSIVE,
+        confidence=1.0,
+        category=taxonomy.OPERATIONAL,
+        technique="target_error",
     )
+    record.fingerprint = _fp(record, ctx)
+    return record
 
 
-def _verdict_record(payload: str, response, verdict) -> Record:
-    return Record(
+def _verdict_record(payload: str, response, verdict, ctx: _Context) -> Record:
+    # the judge may classify the trial itself; otherwise use the campaign's tags
+    category = verdict.category or ctx.category
+    technique = verdict.technique or ctx.technique
+    record = Record(
         payload=payload,
         response=response,
         passed=verdict.passed,
         severity=verdict.severity,
         reason=verdict.reason,
         details=verdict.details,
+        status=verdict.status,
+        confidence=verdict.confidence,
+        category=category,
+        technique=technique,
+        impact=verdict.impact,
     )
+    record.fingerprint = _fp(record, ctx)
+    return record
 
 
 def _is_multiturn(vector, adapter) -> bool:
     return callable(getattr(vector, "conversations", None)) and callable(getattr(adapter, "converse", None))
 
 
-def _run_single(vector, adapter, judge, on_step, on_result, sink) -> None:
+def _run_single(vector, adapter, judge, ctx, on_step, on_result, sink) -> None:
     for payload in vector.generate():
         if on_step:
             on_step(payload)
         try:
             response = adapter.invoke(payload)
         except Exception as exc:  # noqa: BLE001 -- a failing target is a result, not a reason to stop
-            record = _error_record(payload, exc)
+            record = _error_record(payload, exc, ctx)
         else:
-            record = _verdict_record(payload, response, judge.evaluate(payload, response))
+            record = _verdict_record(payload, response, judge.evaluate(payload, response), ctx)
         sink(record)
 
 
-def _run_multiturn(vector, adapter, judge, on_step, on_result, sink) -> None:
+def _run_multiturn(vector, adapter, judge, ctx, on_step, on_result, sink) -> None:
     for turns in vector.conversations():
         if on_step:
             on_step(turns[-1])  # name the conversation by the turn that carries the ask
         try:
             replies = adapter.converse(turns)
         except Exception as exc:  # noqa: BLE001
-            sink(_error_record(" | ".join(turns), exc))
+            sink(_error_record(" | ".join(turns), exc, ctx))
             continue
 
         transcript = [{"turn": t, "reply": r} for t, r in zip(turns, replies)]
@@ -76,10 +110,10 @@ def _run_multiturn(vector, adapter, judge, on_step, on_result, sink) -> None:
         )
         if breach:
             turn, reply, verdict = breach
-            record = _verdict_record(turn, reply, verdict)
+            record = _verdict_record(turn, reply, verdict, ctx)
         else:
             last_v = judge.evaluate(turns[-1], replies[-1])
-            record = _verdict_record(turns[-1], replies[-1], last_v)
+            record = _verdict_record(turns[-1], replies[-1], last_v, ctx)
         record.details = {**record.details, "turns": len(turns), "transcript": transcript}
         sink(record)
 
@@ -100,6 +134,7 @@ def run_campaign(
     vector = registry.load("chaos_agents.vectors", campaign.vector.plugin, **campaign.vector.config)
     judge = registry.load("chaos_agents.judges", campaign.judge.plugin, **campaign.judge.config)
 
+    ctx = _Context(target=campaign.adapter.plugin, category=campaign.category, technique=campaign.technique)
     records: list[Record] = []
 
     def sink(record: Record) -> None:
@@ -109,5 +144,5 @@ def run_campaign(
             on_result(record)
 
     run = _run_multiturn if _is_multiturn(vector, adapter) else _run_single
-    run(vector, adapter, judge, on_step, on_result, sink)
+    run(vector, adapter, judge, ctx, on_step, on_result, sink)
     return records

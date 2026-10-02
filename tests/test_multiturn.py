@@ -63,7 +63,7 @@ class _LeakJudge:
 
 
 def _run_multiturn(vector, adapter, judge, tmp_path):
-    from chaos_agents.orchestrator import _run_multiturn
+    from chaos_agents.orchestrator import _Context, _run_multiturn
 
     records, corpus = [], Corpus("mt", root=tmp_path)
 
@@ -71,7 +71,8 @@ def _run_multiturn(vector, adapter, judge, tmp_path):
         corpus.record(r)
         records.append(r)
 
-    _run_multiturn(vector, adapter, judge, None, None, sink)
+    ctx = _Context(target="test", category="", technique="")
+    _run_multiturn(vector, adapter, judge, ctx, None, None, sink)
     return records
 
 
