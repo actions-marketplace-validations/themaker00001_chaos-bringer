@@ -62,6 +62,7 @@ static_corpus = "chaos_agents.vectors.static_corpus:StaticCorpusVector"
 llm = "chaos_agents.vectors.llm:LLMVector"
 multiturn = "chaos_agents.vectors.multiturn:MultiTurnVector"
 indirect = "chaos_agents.vectors.indirect:IndirectVector"
+mutation = "chaos_agents.vectors.mutation:MutationVector"
 
 [project.entry-points."chaos_agents.judges"]
 rule_based = "chaos_agents.judges.rule_based:RuleBasedJudge"
