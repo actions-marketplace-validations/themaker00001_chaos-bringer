@@ -119,6 +119,49 @@ steps aside. `--no-mascot` turns him off. Add `--svg path.svg` to also save
 the run's narration and table as a terminal-styled image, which is how
 `docs/demo-echo.svg` above was made.
 
+## Writing a campaign
+
+A **campaign** is the unit of work: one YAML file that fully describes a single
+test run. It binds a **target** (which agent — the `adapter`), an **attack**
+(what to send — the `vector`), and a **verdict rule** (what counts as a break —
+the `judge`), each being a plugin plus its config. Nothing is hard-coded; you
+mix and match, and the file is reproducible and reviewable. It's the declarative
+equivalent of `use … ; set … ; run`.
+
+```yaml
+name: my-agent-secret-leak      # label for reports and the corpus
+category: sensitive_data        # optional taxonomy tags (family / technique);
+technique: secret_extraction    #   they flow into findings, SARIF rules, ChaosBench
+
+adapter:                        # THE TARGET — one of: echo, parrot, generic_proxy,
+  plugin: generic_proxy         #   ollama_chat, mcp_fault, a2a, chatgpt_app, sandbox
+  config:                       #   (`chaos-agents plugins` lists them all)
+    upstream_url: "http://localhost:11434/api/chat"
+
+vector:                         # THE ATTACK — one of: static_corpus, llm,
+  plugin: static_corpus         #   multiturn, indirect, mutation
+  config: {}
+
+judge:                          # THE VERDICT — one of: rule_based, llm
+  plugin: rule_based
+  config:
+    forbidden_substrings: ["sk-my-canary-7788"]   # a leak if this appears
+```
+
+Each block is `plugin:` (which one) + `config:` (its keyword arguments). Run it,
+score it, or just check it's valid:
+
+```bash
+chaos-agents validate campaigns/my_agent.yaml    # parse + confirm the plugins exist
+chaos-agents run      campaigns/my_agent.yaml    # run the attack, get findings
+chaos-agents bench    campaigns/my_agent.yaml    # score the target across the taxonomy
+```
+
+The optional `category`/`technique` tag every finding, become the rule IDs in the
+SARIF uploaded to GitHub's Security tab, and group results — use the families and
+techniques from the [taxonomy](src/chaos_agents/taxonomy.py). See the ready-made
+files in [`campaigns/`](campaigns) for one of each adapter/vector/judge.
+
 ## Use it as a CI gate
 
 Gate every change to your agent on an attack campaign: a confirmed finding
