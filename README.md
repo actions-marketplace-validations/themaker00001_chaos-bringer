@@ -28,22 +28,34 @@ spills.
 
 ## What it actually is
 
-Four plugin surfaces, each a `typing.Protocol` with no forced inheritance,
-discovered via Python entry-points so built-ins and third-party plugins
-register the exact same way:
+chaos-bringer is **config-driven**: a [campaign](#writing-a-campaign) names one
+plugin per surface, and every run flows through the same pipeline. The four
+surfaces are `typing.Protocol`s with no forced inheritance, discovered via Python
+entry-points, so built-in and third-party plugins register the exact same way.
 
 ```mermaid
 flowchart LR
-    V[Chaos Vector] -->|adversarial payload| P((Interceptor Proxy))
-    P <-->|LLM / tool / MCP calls| T[Target Agent]
-    P -->|reply + tool calls| O[Observation]
-    O --> J[Judge]
-    J -->|Finding| C[(Corpus)]
-    M[Model Provider\ndefault: Ollama] -.optional.-> V
-    M -.optional.-> J
+    CMP["Campaign (YAML)"] --> V
+
+    V["Vector — the attack"] -->|payload| A["Adapter — the target agent"]
+    A -->|"reply + tool calls"| O["Observation"]
+    O --> J["Judge — the verdict"]
+    J --> F["Finding<br/>status · severity · fingerprint"]
+    F --> C[("Corpus · JSONL")]
+
+    C --> MIN["Minimize"] --> REG[("Regression corpus")]
+    F --> EXP["Export · JSON / SARIF / JUnit"] --> CI{{"CI gate · exit code"}}
+
+    PROV["Model Provider · Ollama (local)"] -.->|optional| V
+    PROV -.->|optional| J
+
+    BENCH["ChaosBench suite"] -.->|"reuses adapter + judge"| A
+    A -.->|scored| SC["Scorecard · resilience % · grade"]
 ```
 
-The full pipeline: **Attack → Agent → Observation → Judge → Finding → Fingerprint → Minimize → Corpus → Regression → CI.**
+The full pipeline: **Attack → Agent → Observation → Judge → Finding → Fingerprint
+→ Minimize → Corpus → Regression → CI** — plus **ChaosBench**, which reuses the
+adapter + observation + judge to score any target across the taxonomy.
 
 - **Model Provider** — generates mutated payloads and, optionally, judges. Default: **Ollama**, local and free.
 - **Target Adapter** — connects to the system under test. **generic_proxy** intercepts any OpenAI/Ollama-shaped chat call, so most frameworks need zero adapter code; **ollama_chat** points straight at a local model that holds a conversation (no framework wiring), and it carries state, so **multi-turn** attacks that build across turns work against it; **mcp_fault** is a fault-injecting MCP proxy that poisons, errors, delays or mangles tool results on their way back to an agent — and goes deeper with **tool-description poisoning** (injection in the `tools/list` reply, "line jumping") and **poisoning chains** (per-tool faults so one tool's output steers the agent into another); **a2a** attacks an Agent-to-Agent agent over JSON-RPC, including **cross-agent trust abuse** and **identity spoofing** (see [examples/mcp_a2a_scenarios](examples/mcp_a2a_scenarios)); **chatgpt_app** attacks a ChatGPT App (an MCP server) by calling its tools with hostile arguments; **sandbox** is a contained environment for computer-use agents — a local model acts in a small world where the attack is planted in a page it reads, exfiltration is recorded but never really sent, and the sandbox detects compromise from ground truth.
