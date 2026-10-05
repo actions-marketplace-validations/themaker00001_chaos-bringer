@@ -189,9 +189,13 @@ def _finding_args_error(exc: Exception) -> int:
 def _cmd_finding_list(args: argparse.Namespace) -> int:
     from chaos_agents import runstore, securityfinding
 
+    from chaos_agents import regression
+
     located = runstore.list_findings(args.runs_dir)
+    state = {f.id: regression.state_of(f.id, args.regressions_dir) for f in located}
     if args.json:
-        print(json.dumps([securityfinding.from_record(f.record, f.run_info()).to_dict() for f in located], indent=2))
+        print(json.dumps([securityfinding.from_record(f.record, f.run_info(), regression=state[f.id]).to_dict()
+                          for f in located], indent=2))
         return 0
     if not located:
         print(f"no findings under {args.runs_dir}/ (run a campaign first)")
@@ -199,7 +203,8 @@ def _cmd_finding_list(args: argparse.Namespace) -> int:
     print(f"{len(located)} finding(s) under {args.runs_dir}/\n")
     for f in located:
         r = f.record
-        print(f"  {f.id}  {r.severity.upper():<8} {r.category}/{r.technique:<24} {f.campaign}"
+        status = (state[f.id] or {}).get("status", "open").upper()
+        print(f"  {f.id}  {r.severity.upper():<8} {status:<6} {r.category}/{r.technique:<24} {f.campaign}"
               + (f"  x{f.occurrences}" if f.occurrences > 1 else ""))
     return 0
 
@@ -213,7 +218,10 @@ def _cmd_finding_show(args: argparse.Namespace) -> int:
         return _finding_args_error(exc)
     except runstore.AmbiguousFinding as exc:
         return _finding_args_error(exc)
-    finding = securityfinding.from_record(found.record, found.run_info())
+    from chaos_agents import regression
+
+    finding = securityfinding.from_record(found.record, found.run_info(),
+                                          regression=regression.state_of(found.id, args.regressions_dir))
     print(json.dumps(finding.to_dict(), indent=2) if args.json else finding.render(graph=args.graph or ""))
     return 0
 
@@ -245,6 +253,22 @@ def _cmd_finding_promote(args: argparse.Namespace) -> int:
         print("  minimized: no (a memory scenario is replayed whole)")
     print(f"  reproducible: {'yes' if promoted.reproducible else 'NO (forced)'}")
     return 0
+
+
+def _cmd_replay(args: argparse.Namespace) -> int:
+    from chaos_agents import replay as replay_mod
+    from chaos_agents import runstore
+    from chaos_agents.interfaces import INCONCLUSIVE, PASS
+
+    try:
+        found = runstore.find(args.id, args.runs_dir)
+        campaign = _load_valid_campaign(args.campaign).to_dict() if args.campaign else None
+        fix = replay_mod.parse_fix(args.fix or [])
+        rp = replay_mod.replay(found, args.regressions_dir, fix=fix, campaign=campaign, record=args.record)
+    except (runstore.FindingNotFound, runstore.AmbiguousFinding, CampaignError, replay_mod.ReplayError) as exc:
+        return _finding_args_error(exc)
+    print(json.dumps(rp.to_dict(), indent=2) if args.json else replay_mod.render(rp))
+    return 0 if rp.result == PASS else 3 if rp.result == INCONCLUSIVE else 1
 
 
 def _cmd_plugins(args: argparse.Namespace) -> int:
@@ -294,11 +318,15 @@ def main(argv: list[str] | None = None) -> int:
     finding_sub = finding_p.add_subparsers(dest="finding_command", required=True)
     flist = finding_sub.add_parser("list", help="every distinct confirmed finding under the runs directory")
     flist.add_argument("--runs-dir", default="runs", help="where runs were written (default: ./runs)")
+    flist.add_argument("--regressions-dir", default=DEFAULT_REGRESSIONS,
+                       help=f"where regression tests live, for status (default: ./{DEFAULT_REGRESSIONS})")
     flist.add_argument("--json", action="store_true", help="machine-readable output")
     flist.set_defaults(func=_cmd_finding_list)
     fshow = finding_sub.add_parser("show", help="show one finding in full: attack, evidence, path, standards")
     fshow.add_argument("id", help="finding id, e.g. CB-956b1f46 (any unambiguous prefix works)")
     fshow.add_argument("--runs-dir", default="runs", help="where runs were written (default: ./runs)")
+    fshow.add_argument("--regressions-dir", default=DEFAULT_REGRESSIONS,
+                       help=f"where regression tests live, for status (default: ./{DEFAULT_REGRESSIONS})")
     fshow.add_argument("--json", action="store_true", help="the finding as JSON")
     fshow.add_argument("--graph", nargs="?", const="box", choices=["box", "mermaid"],
                        help="also draw the attack graph (box, or mermaid)")
@@ -316,6 +344,22 @@ def main(argv: list[str] | None = None) -> int:
     fpromote.add_argument("--force", action="store_true",
                           help="replace an existing regression, or promote one that did not reproduce")
     fpromote.set_defaults(func=_cmd_finding_promote)
+
+    replay_p = sub.add_parser(
+        "replay", help="re-run a finding's attack and show what happens now (optionally with a fix applied)")
+    replay_p.add_argument("id", help="finding id, e.g. CB-956b1f46 (any unambiguous prefix works)")
+    replay_p.add_argument("--fix", action="append", metavar="KEY=VALUE",
+                          help="a change to the target's configuration, e.g. --fix hardened=true; the attack is "
+                               "replayed against the original target first, then the fixed one (repeatable)")
+    replay_p.add_argument("--record", action="store_true",
+                          help="if the fix passes, write it into the regression and mark the finding fixed")
+    replay_p.add_argument("--runs-dir", default="runs", help="where runs were written (default: ./runs)")
+    replay_p.add_argument("--regressions-dir", default=DEFAULT_REGRESSIONS,
+                          help=f"where regression tests live (default: ./{DEFAULT_REGRESSIONS})")
+    replay_p.add_argument("--campaign", metavar="FILE",
+                          help="rebuild the target from this campaign file instead of the run's snapshot")
+    replay_p.add_argument("--json", action="store_true", help="the replay as JSON")
+    replay_p.set_defaults(func=_cmd_replay)
 
     validate_p = sub.add_parser("validate", help="check a campaign file without running it")
     validate_p.add_argument("campaign", help="path to a campaign YAML file")

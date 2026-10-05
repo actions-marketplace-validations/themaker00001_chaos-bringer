@@ -47,6 +47,7 @@ class SecurityFinding:
     mitre_atlas: list[str] = field(default_factory=list)
     reproducible: bool | None = None       # None: nobody has replayed it yet
     fingerprint: str = ""
+    regression: str = ""                   # the promoted regression folder, once there is one
     run: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -74,6 +75,7 @@ class SecurityFinding:
                 f"OWASP {', '.join(self.owasp)}" if self.owasp else "",
                 f"ATLAS {', '.join(self.mitre_atlas)}" if self.mitre_atlas else "") if p)),
             ("Reproducible", {True: "yes", False: "no (did not reproduce on replay)", None: "unverified"}[self.reproducible]),
+            ("Regression", f"{self.regression}/" if self.regression else ""),
             ("Fingerprint", self.fingerprint),
             ("Found in", f"{self.run['campaign']}  run {self.run['run_id']}"
              + (f"  (seen in {self.run['runs_seen']} runs)" if self.run.get("runs_seen", 1) > 1 else "")
@@ -137,8 +139,14 @@ def _call(call: dict) -> str:
 
 
 def from_record(record: Record, run: dict[str, Any] | None = None, *, status: str = OPEN,
-                reproducible: bool | None = None) -> SecurityFinding:
-    """Build the finding for a confirmed (failed) Record."""
+                reproducible: bool | None = None, regression: dict | None = None) -> SecurityFinding:
+    """Build the finding for a confirmed (failed) Record. `regression` is what
+    the regressions folder says about it (``regression.state_of``): once it has
+    been promoted, its status and verified reproducibility come from there."""
+    if regression:
+        status = regression.get("status") or status
+        if regression.get("reproducible") is not None:
+            reproducible = regression["reproducible"]
     details = record.details or {}
     memory_info = details.get("memory") or None
     attack: dict[str, Any] = {"payload": record.payload}
@@ -161,5 +169,5 @@ def from_record(record: Record, run: dict[str, Any] | None = None, *, status: st
         capability=record.capability, source=record.source, sink=record.sink, data=record.data,
         impact=record.impact, summary=record.reason, attack=attack, evidence=evidence,
         attack_path=list(record.attack_path), owasp=owasp, mitre_atlas=atlas, reproducible=reproducible,
-        fingerprint=record.fingerprint, run=run or {},
+        fingerprint=record.fingerprint, run=run or {}, regression=(regression or {}).get("path", ""),
     )

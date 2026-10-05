@@ -252,6 +252,22 @@ def _read_folder(folder: Path) -> dict:
     return entry
 
 
+def state_of(finding_id_: str, regressions_dir: str | Path = "regressions") -> dict | None:
+    """What the regression folder says about a finding -- its status (open /
+    fixed), whether it was verified reproducible -- or None if it was never
+    promoted."""
+    folder = Path(regressions_dir) / finding_id_
+    meta_path = folder / METADATA
+    if not (folder / ATTACK).exists() or not meta_path.exists():
+        return None
+    try:
+        meta = json.loads(meta_path.read_text())
+    except ValueError:
+        return None
+    return {"status": meta.get("status", "open"), "reproducible": meta.get("reproducible"), "path": str(folder),
+            "fixed": meta.get("fixed")}
+
+
 def load_entries(baseline_dir: str | Path) -> list[dict]:
     """Every reproducer under `baseline_dir`, from both layouts: flat
     ``*.json`` files and ``CB-xxxx/attack.yaml`` folders."""
