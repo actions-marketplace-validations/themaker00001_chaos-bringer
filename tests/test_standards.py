@@ -41,8 +41,7 @@ def test_atlas_ids_are_well_formed_and_never_include_an_unverified_one():
 
 def test_a_framework_entry_that_nothing_maps_to_is_dead_weight():
     used_atlas = {i for _, atlas in standards._MAP.values() for i in atlas}
-    # AML.T0080 (context poisoning) is reserved for the memory-poisoning family
-    assert set(standards.ATLAS) - used_atlas <= {"AML.T0080"}
+    assert set(standards.ATLAS) == used_atlas
 
 
 @pytest.mark.parametrize("category, technique, owasp, atlas", [

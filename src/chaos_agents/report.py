@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from chaos_agents import attackgraph, standards
+from chaos_agents import attackgraph, memory, standards
 from chaos_agents.corpus import Record
 
 
@@ -15,6 +15,8 @@ def flow_lines(record: Record) -> list[str]:
         return []
     flow = flows[0]
     path = flow.get("attack_path") or record.attack_path
+    if record.category == memory.CATEGORY:      # the route began in another session
+        path = memory.route(path)
     verb = "CRITICAL" if record.severity == "critical" else record.severity.upper()
     rule = flow.get("rule", "").removeprefix("data_flow.")
     key, _, setting = rule.partition(" = ")

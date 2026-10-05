@@ -57,15 +57,23 @@ def _cmd_run(args: argparse.Namespace) -> int:
         from chaos_agents import report_rich
 
         console = Console()
-        with report_rich.NergalStatus(console, mascot=not args.no_mascot, campaign=campaign) as status:
-            records = run_campaign(campaign, corpus, on_step=status.thinking, on_result=status.result)
-            status.done(records)
+        try:
+            with report_rich.NergalStatus(console, mascot=not args.no_mascot, campaign=campaign) as status:
+                records = run_campaign(campaign, corpus, on_step=status.thinking, on_result=status.result)
+                status.done(records)
+        except CampaignError as exc:
+            print(f"invalid campaign: {exc}", file=sys.stderr)
+            return 2
         report_rich.render(campaign.name, records)
         if args.svg:
             report_rich.render_svg(campaign.name, records, args.svg)
             print(f"\nSVG written to: {args.svg}")
     else:
-        records = run_campaign(campaign, corpus)
+        try:
+            records = run_campaign(campaign, corpus)
+        except CampaignError as exc:
+            print(f"invalid campaign: {exc}", file=sys.stderr)
+            return 2
         if fmt == "terminal":
             print(report.render(campaign.name, records))
 

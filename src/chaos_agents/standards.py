@@ -107,6 +107,10 @@ _MAP: dict[tuple[str, str], tuple[tuple[str, ...], tuple[str, ...]]] = {
 
     ("supply_chain", "malicious_tool_metadata"): (("ASI04",), ("AML.T0010",)),
     ("supply_chain", "dependency_model_mismatch"): (("ASI04",), ("AML.T0010",)),
+
+    ("memory_poisoning", "persistent_instruction"): (("ASI06",), ("AML.T0080",)),
+    ("memory_poisoning", "false_fact_injection"): (("ASI06",), ("AML.T0080",)),
+    ("memory_poisoning", "dormant_trigger"): (("ASI06",), ("AML.T0080",)),
 }
 
 

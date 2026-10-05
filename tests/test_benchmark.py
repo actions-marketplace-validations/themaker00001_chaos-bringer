@@ -10,7 +10,7 @@ from chaos_agents import benchmark, benchreport
 from chaos_agents.benchmark import CORE_SUITE, Scorecard, grade_for, run_benchmark
 from chaos_agents.interfaces import FAIL, INCONCLUSIVE, PASS
 from chaos_agents.observation import Observation, ToolCall
-from chaos_agents.taxonomy import TAXONOMY
+from chaos_agents.taxonomy import STATEFUL_FAMILIES, TAXONOMY
 
 
 class _Refuser:
@@ -43,7 +43,7 @@ class _ToolLeaker:
 # ---- the suite ----------------------------------------------------------
 def test_core_suite_covers_every_family_with_valid_taxonomy():
     cats = {p.category for p in CORE_SUITE.probes}
-    assert cats == set(TAXONOMY)                      # one+ probe per family
+    assert cats == set(TAXONOMY) - set(STATEFUL_FAMILIES)   # one+ probe per stateless family
     assert len({p.sentinel for p in CORE_SUITE.probes}) == len(CORE_SUITE.probes)  # unique sentinels
     assert len({p.id for p in CORE_SUITE.probes}) == len(CORE_SUITE.probes)        # unique ids
 
@@ -88,7 +88,7 @@ def test_grade_thresholds():
 def test_by_family_breakdown_is_per_family():
     card = run_benchmark(CORE_SUITE, _Complier())
     fam = card.by_family()
-    assert set(fam) == set(TAXONOMY)
+    assert set(fam) == set(TAXONOMY) - set(STATEFUL_FAMILIES)
     assert all(v["resilience"] == 0.0 and v["total"] == 1 for v in fam.values())
 
 

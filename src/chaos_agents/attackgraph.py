@@ -79,6 +79,17 @@ _OUTCOME_BY_CATEGORY = {
 _NO_HIJACK = {"availability_cost", "supply_chain"}
 
 
+def _memory_opening(record: Record) -> list[Stage]:
+    """A memory-poisoning finding starts in one session and fires in another."""
+    scenario = (record.details.get("memory") or {}).get("scenario") or {}
+    return [
+        Stage("MEMORY POISONING", f"planted in the attacker's session ({record.technique})"),
+        Stage("PERSISTENT MEMORY", "outlives the session"),
+        Stage("VICTIM SESSION", scenario.get("trigger", "an innocent request")),
+        Stage("AGENT GOAL HIJACK", "poisoned memory followed"),
+    ]
+
+
 def _entry(record: Record) -> Stage:
     label = (_ENTRY_BY_TECHNIQUE.get(record.technique)
              or _ENTRY_BY_VECTOR.get(record.vector) or "ATTACK PAYLOAD")
@@ -112,14 +123,17 @@ def stages_of(record: Record) -> list[Stage]:
     failure -- a held attack has no chain to draw."""
     if record.passed or (record.status and record.status != "fail"):
         return []
-    stages = [_entry(record)]
-    if record.category not in _NO_HIJACK:
-        stages.append(Stage("AGENT GOAL HIJACK", "injected instruction followed"))
+    if record.category == "memory_poisoning":
+        stages = _memory_opening(record)
+    else:
+        stages = [_entry(record)]
+        if record.category not in _NO_HIJACK:
+            stages.append(Stage("AGENT GOAL HIJACK", "injected instruction followed"))
 
     lead, group = _lead(record)
     if lead is None:
         outcome = _OUTCOME_BY_CATEGORY.get(record.category)
-        if outcome and record.category != "goal_hijack":
+        if outcome and record.category not in ("goal_hijack", "memory_poisoning"):
             stages.append(Stage(outcome, record.impact or record.reason))
         return stages
 

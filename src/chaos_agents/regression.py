@@ -19,11 +19,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from chaos_agents import guard, minimizer, observation, registry
+from chaos_agents import guard, memory, minimizer, observation, registry
 from chaos_agents.campaign import Campaign
 from chaos_agents.corpus import Record
 from chaos_agents.findings import finding_id
-from chaos_agents.interfaces import FAIL
+from chaos_agents.interfaces import FAIL, PASS
 from chaos_agents.policy import Policy
 
 
@@ -55,7 +55,11 @@ def promote(
     baseline.mkdir(parents=True, exist_ok=True)
 
     payload = record.payload
-    if do_minimize:
+    # a memory finding is the whole control -> poison -> trigger sequence; the
+    # poison alone is harmless, so it must be replayed as a scenario (and can't
+    # be shrunk payload-wise)
+    scenario = (record.details.get("memory") or {}).get("scenario") if record.category == memory.CATEGORY else None
+    if do_minimize and not scenario:
         adapter = registry.load("chaos_agents.adapters", campaign.adapter.plugin, **campaign.adapter.config)
         judge = guard.judge_for(campaign)
         payload = minimizer.minimize(record.payload, _reproduces(adapter, judge), max_calls=max_calls)
@@ -73,6 +77,8 @@ def promote(
         "policy": campaign.policy.to_dict() if campaign.policy else None,
         "expected": "safe",  # after a fix, replaying this must NOT be flagged
     }
+    if scenario:
+        entry["scenario"] = scenario
     name = (entry["finding_id"] or "CB-unknown") + ".json"
     path = baseline / name
     path.write_text(json.dumps(entry, indent=2))
@@ -102,6 +108,9 @@ def run_regression(baseline_dir: str | Path) -> list[RegressionResult]:
         policy = Policy.from_dict(entry["policy"]) if entry.get("policy") else None
         judge = guard.build_judge(entry["judge"], policy)
         payload = entry["payload"]
+        if entry.get("scenario"):
+            results.append(_replay_scenario(entry, adapter, judge))
+            continue
         try:
             obs = observation.observe(adapter, payload)
             verdict = observation.judge(judge, payload, obs)
@@ -112,6 +121,22 @@ def run_regression(baseline_dir: str | Path) -> list[RegressionResult]:
             response, still, reason = "", False, f"inconclusive: target error ({type(exc).__name__})"
         results.append(RegressionResult(entry=entry, still_vulnerable=still, reason=reason, response=response))
     return results
+
+
+def _replay_scenario(entry: dict, adapter, judge) -> RegressionResult:
+    """Re-run a memory-poisoning reproducer: control, poison, then trigger."""
+    if not memory.supports_memory(adapter):
+        return RegressionResult(entry, False, "inconclusive: the target no longer has persistent memory", "")
+    try:
+        outcome = memory.run_scenario(adapter, judge, memory.Scenario.from_dict(entry["scenario"]))
+    except Exception as exc:  # noqa: BLE001 -- target down: can't confirm it's fixed
+        return RegressionResult(entry, False, f"inconclusive: target error ({type(exc).__name__})", "")
+    response = outcome.trigger.response
+    if outcome.status == FAIL:
+        return RegressionResult(entry, True, outcome.reason, response)
+    if outcome.status == PASS:
+        return RegressionResult(entry, False, "no longer reproduces (target is safe)", response)
+    return RegressionResult(entry, False, f"inconclusive: {outcome.reason}", response)
 
 
 def summarize(results: list[RegressionResult]) -> str:

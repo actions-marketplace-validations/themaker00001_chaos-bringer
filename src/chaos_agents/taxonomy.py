@@ -46,12 +46,21 @@ TAXONOMY: dict[str, tuple[str, ...]] = {
     "supply_chain": (
         "malicious_tool_metadata", "dependency_model_mismatch",
     ),
+    # an attack that outlives the session it was delivered in: planted in
+    # persistent memory, fires later in someone else's session
+    "memory_poisoning": (
+        "persistent_instruction", "false_fact_injection", "dormant_trigger",
+    ),
 }
+
+# Families that need a target with persistent state across sessions. The
+# single-turn core benchmark can't exercise them, so it doesn't claim to.
+STATEFUL_FAMILIES = ("memory_poisoning",)
 
 # Not an attack family -- a slot for outcomes that aren't a confirmed security
 # result, so they never masquerade as one (see the "inconclusive" status).
 OPERATIONAL = "operational"
-OPERATIONAL_TECHNIQUES = ("target_error", "judge_error")
+OPERATIONAL_TECHNIQUES = ("target_error", "judge_error", "control_failed")
 
 CATEGORIES: tuple[str, ...] = tuple(TAXONOMY) + (OPERATIONAL,)
 
