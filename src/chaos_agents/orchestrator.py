@@ -12,7 +12,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Callable
 
-from chaos_agents import findings, observation, registry, taxonomy
+from chaos_agents import findings, guard, observation, registry, taxonomy
 from chaos_agents.campaign import Campaign
 from chaos_agents.corpus import Corpus, Record
 from chaos_agents.interfaces import INCONCLUSIVE
@@ -30,6 +30,7 @@ class _Context:
     target: str
     category: str
     technique: str
+    vector: str = ""
 
 
 def _fp(record: Record, ctx: _Context) -> str:
@@ -50,6 +51,8 @@ def _error_record(payload: str, exc: Exception, ctx: _Context) -> Record:
         confidence=1.0,
         category=taxonomy.OPERATIONAL,
         technique="target_error",
+        target=ctx.target,
+        vector=ctx.vector,
     )
     record.fingerprint = _fp(record, ctx)
     return record
@@ -71,7 +74,14 @@ def _verdict_record(payload: str, response, verdict, ctx: _Context, obs: Observa
         category=category,
         technique=technique,
         impact=verdict.impact,
+        target=ctx.target,
+        vector=ctx.vector,
     )
+    # a judge or guard that traced the compromise (capability, sink, route) says so
+    # in details["finding"]; lift it onto the record's typed fields
+    for key, value in (verdict.details.get("finding") or {}).items():
+        if hasattr(record, key) and value:
+            setattr(record, key, value)
     if obs is not None:  # carry the Observation stage into the corpus
         record.tool_calls = obs.tool_calls_as_dicts()
         record.latency_ms = round(obs.latency_ms, 3)
@@ -140,9 +150,10 @@ def run_campaign(
     """
     adapter = registry.load("chaos_agents.adapters", campaign.adapter.plugin, **campaign.adapter.config)
     vector = registry.load("chaos_agents.vectors", campaign.vector.plugin, **campaign.vector.config)
-    judge = registry.load("chaos_agents.judges", campaign.judge.plugin, **campaign.judge.config)
+    judge = guard.judge_for(campaign)  # the campaign's judge, with its policy folded in
 
-    ctx = _Context(target=campaign.adapter.plugin, category=campaign.category, technique=campaign.technique)
+    ctx = _Context(target=campaign.adapter.plugin, category=campaign.category, technique=campaign.technique,
+                   vector=campaign.vector.plugin)
     records: list[Record] = []
 
     def sink(record: Record) -> None:

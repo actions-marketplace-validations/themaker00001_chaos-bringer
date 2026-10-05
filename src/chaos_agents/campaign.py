@@ -9,6 +9,7 @@ from typing import Any
 import yaml
 
 from chaos_agents import registry, taxonomy
+from chaos_agents.policy import Policy, PolicyError
 
 
 class CampaignError(ValueError):
@@ -46,6 +47,9 @@ class Campaign:
     # Stamped onto findings unless the judge classifies a trial itself.
     category: str = ""
     technique: str = ""
+    # optional capability policy: what the agent may do, checked against every
+    # tool call it makes (see chaos_agents.policy)
+    policy: Policy | None = None
 
     @classmethod
     def from_yaml(cls, path: str | Path) -> Campaign:
@@ -59,7 +63,9 @@ class Campaign:
         if not isinstance(data, dict):
             raise CampaignError(f"{path} must be a YAML mapping at the top level")
 
-        missing = [k for k in ("name", "adapter", "vector", "judge") if k not in data]
+        # a policy-only campaign needs no judge: the policy is the verdict rule
+        required = ("name", "adapter", "vector") + (() if "policy" in data else ("judge",))
+        missing = [k for k in required if k not in data]
         if missing:
             raise CampaignError(f"{path} is missing required key(s): {', '.join(missing)}")
 
@@ -71,14 +77,39 @@ class Campaign:
             except ValueError as exc:
                 raise CampaignError(str(exc)) from exc
 
+        policy = None
+        if "policy" in data:
+            try:
+                policy = Policy.from_dict(data["policy"])
+            except PolicyError as exc:
+                raise CampaignError(f"{path}: {exc}") from exc
+
+        judge = (ComponentSpec.from_dict(data["judge"], "judge") if "judge" in data
+                 else ComponentSpec(plugin="rule_based"))
         return cls(
             name=data["name"],
             adapter=ComponentSpec.from_dict(data["adapter"], "adapter"),
             vector=ComponentSpec.from_dict(data["vector"], "vector"),
-            judge=ComponentSpec.from_dict(data["judge"], "judge"),
+            judge=judge,
             category=category,
             technique=technique,
+            policy=policy,
         )
+
+    def to_dict(self) -> dict:
+        """The campaign as plain data -- what a run snapshot and a regression
+        entry store so the same target can be rebuilt later."""
+        out: dict = {"name": self.name}
+        if self.category:
+            out["category"] = self.category
+        if self.technique:
+            out["technique"] = self.technique
+        out["adapter"] = {"plugin": self.adapter.plugin, "config": self.adapter.config}
+        out["vector"] = {"plugin": self.vector.plugin, "config": self.vector.config}
+        out["judge"] = {"plugin": self.judge.plugin, "config": self.judge.config}
+        if self.policy:
+            out["policy"] = self.policy.to_dict()
+        return out
 
     def check_plugins(self) -> None:
         """Confirm each named plugin is actually installed, so a typo fails

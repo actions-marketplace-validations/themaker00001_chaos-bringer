@@ -28,6 +28,9 @@ def _cmd_validate(args: argparse.Namespace) -> int:
     tags = f" [{campaign.category}/{campaign.technique}]" if campaign.category else ""
     print(f"ok: {campaign.name}{tags}  "
           f"adapter={campaign.adapter.plugin} vector={campaign.vector.plugin} judge={campaign.judge.plugin}")
+    if campaign.policy:
+        n = len(campaign.policy.capabilities)
+        print(f"policy: {n} capabilit{'y' if n == 1 else 'ies'}, default {campaign.policy.default}")
     return 0
 
 

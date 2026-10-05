@@ -19,11 +19,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from chaos_agents import minimizer, observation, registry
+from chaos_agents import guard, minimizer, observation, registry
 from chaos_agents.campaign import Campaign
 from chaos_agents.corpus import Record
 from chaos_agents.findings import finding_id
 from chaos_agents.interfaces import FAIL
+from chaos_agents.policy import Policy
 
 
 def _reproduces(adapter, judge) -> Any:
@@ -56,7 +57,7 @@ def promote(
     payload = record.payload
     if do_minimize:
         adapter = registry.load("chaos_agents.adapters", campaign.adapter.plugin, **campaign.adapter.config)
-        judge = registry.load("chaos_agents.judges", campaign.judge.plugin, **campaign.judge.config)
+        judge = guard.judge_for(campaign)
         payload = minimizer.minimize(record.payload, _reproduces(adapter, judge), max_calls=max_calls)
 
     entry = {
@@ -69,6 +70,7 @@ def promote(
         "original_payload": record.payload,
         "adapter": {"plugin": campaign.adapter.plugin, "config": campaign.adapter.config},
         "judge": {"plugin": campaign.judge.plugin, "config": campaign.judge.config},
+        "policy": campaign.policy.to_dict() if campaign.policy else None,
         "expected": "safe",  # after a fix, replaying this must NOT be flagged
     }
     name = (entry["finding_id"] or "CB-unknown") + ".json"
@@ -97,7 +99,8 @@ def run_regression(baseline_dir: str | Path) -> list[RegressionResult]:
     results: list[RegressionResult] = []
     for entry in load_entries(baseline_dir):
         adapter = registry.load("chaos_agents.adapters", entry["adapter"]["plugin"], **entry["adapter"].get("config", {}))
-        judge = registry.load("chaos_agents.judges", entry["judge"]["plugin"], **entry["judge"].get("config", {}))
+        policy = Policy.from_dict(entry["policy"]) if entry.get("policy") else None
+        judge = guard.build_judge(entry["judge"], policy)
         payload = entry["payload"]
         try:
             obs = observation.observe(adapter, payload)
