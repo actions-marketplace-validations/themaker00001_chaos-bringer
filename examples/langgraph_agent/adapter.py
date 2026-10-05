@@ -32,11 +32,12 @@ class LangGraphOllamaAdapter:
         self,
         model: str = "qwen3:14b",
         ollama_url: str = "http://localhost:11434/v1/chat/completions",
+        timeout: float = 120.0,  # a thinking-mode 14B model can take well over 30s per reply
     ) -> None:
-        self.proxy = GenericProxyAdapter(upstream_url=ollama_url, default_fields={"model": model})
+        self.proxy = GenericProxyAdapter(upstream_url=ollama_url, default_fields={"model": model}, timeout=timeout)
         self.proxy.start()
 
-        llm = ChatOpenAI(model=model, base_url=f"{self.proxy.url}/v1", api_key="ollama")
+        llm = ChatOpenAI(model=model, base_url=f"{self.proxy.url}/v1", api_key="ollama", timeout=timeout)
 
         def call_model(state: MessagesState) -> dict:
             response = llm.invoke([SystemMessage(content=SYSTEM_PROMPT), *state["messages"]])
