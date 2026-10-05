@@ -124,7 +124,7 @@
   .stat b { color: var(--fg); }
 
   .hero-art { text-align: center; }
-  .hero-art img { border-radius: 10px; border: 1px solid var(--border); background: #000; }
+  .hero-art img { filter: drop-shadow(0 12px 28px rgba(0,0,0,0.55)); }
   .hero-art figcaption { margin-top: 12px; font-size: 13px; color: var(--dim); }
 
   /* ---- grids / cards ---- */
@@ -196,7 +196,7 @@
   /* ---- mascot section ---- */
   .nergal-grid { display: grid; grid-template-columns: 0.8fr 1.2fr; gap: 40px; align-items: center; }
   @media (max-width: 760px) { .nergal-grid { grid-template-columns: 1fr; } }
-  .nergal-grid img { border-radius: 10px; border: 1px solid var(--border); background: #000; margin-inline: auto; }
+  .nergal-grid img { margin-inline: auto; filter: drop-shadow(0 12px 28px rgba(0,0,0,0.55)); }
   .credit-box {
     margin-top: 20px; font-size: 13px; color: var(--muted);
     border-top: 1px solid var(--border); padding-top: 16px;

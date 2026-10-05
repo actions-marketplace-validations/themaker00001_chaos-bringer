@@ -416,10 +416,32 @@ def main():
     sheet.save(OUT / "frames_sheet.png")
 
     # transparent GIF: every pixel is either fully opaque or fully clear, so
-    # GIF's 1-bit transparency loses nothing; disposal=2 clears each frame
-    gif = [f.resize((W * scale, H * scale), Image.NEAREST) for f in frames]
-    gif[0].save(DOCS / "nergal.gif", save_all=True, append_images=gif[1:], duration=140, loop=0, disposal=2)
-    print(f"ok: {len(frames)} frames in {OUT}, animation at {DOCS / 'nergal.gif'}")
+    # GIF's 1-bit transparency loses nothing -- but PIL doesn't do this for
+    # free. Saving RGBA frames directly makes it silently flatten alpha onto
+    # black during its own P-mode conversion (that's the bug this used to
+    # have: a solid black box instead of "drawn straight onto the page").
+    # Quantize every frame onto one shared palette first, with one reserved
+    # index forced onto every alpha=0 pixel, and pass that index as the GIF's
+    # transparent color explicitly.
+    big = [f.resize((W * scale, H * scale), Image.NEAREST) for f in frames]
+    strip = Image.new("RGB", (big[0].width * len(big), big[0].height))
+    for i, f in enumerate(big):
+        strip.paste(f.convert("RGB"), (i * f.width, 0))
+    shared_palette = strip.quantize(colors=255, dither=Image.NONE)
+    TRANSPARENT_INDEX = 255
+
+    gif = []
+    for f in big:
+        p = f.convert("RGB").quantize(palette=shared_palette, dither=Image.NONE)
+        clear = f.getchannel("A").point(lambda a: 255 if a < 128 else 0)
+        p.paste(TRANSPARENT_INDEX, mask=clear)
+        gif.append(p)
+
+    gif[0].save(
+        DOCS / "nergal.gif", save_all=True, append_images=gif[1:], duration=140,
+        loop=0, disposal=2, transparency=TRANSPARENT_INDEX, optimize=False,
+    )
+    print(f"ok: {len(frames)} frames in {OUT}, transparent animation at {DOCS / 'nergal.gif'}")
 
 
 if __name__ == "__main__":
