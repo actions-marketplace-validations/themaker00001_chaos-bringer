@@ -12,6 +12,9 @@ from chaos_agents.interfaces import FAIL
 from chaos_agents.orchestrator import run_campaign
 
 
+DEFAULT_REGRESSIONS = "regressions"
+
+
 def _load_valid_campaign(path: str) -> Campaign:
     """Parse and fully validate a campaign before anything runs. Raises
     CampaignError with an actionable message."""
@@ -166,7 +169,14 @@ def _cmd_bench(args: argparse.Namespace) -> int:
 def _cmd_regression(args: argparse.Namespace) -> int:
     from chaos_agents import regression
 
-    results = regression.run_regression(args.baseline)
+    baseline = Path(args.baseline or DEFAULT_REGRESSIONS)
+    if not baseline.is_dir():
+        if args.baseline:       # a path you typed that isn't there is an error, not a clean bill of health
+            print(f"regression directory not found: {baseline}", file=sys.stderr)
+            return 2
+        print(f"no {DEFAULT_REGRESSIONS}/ directory yet -- promote a finding first: chaos-agents finding promote CB-xxxx")
+        return 0
+    results = regression.run_regression(baseline)
     print(regression.summarize(results))
     return 1 if any(r.still_vulnerable for r in results) else 0
 
@@ -208,6 +218,35 @@ def _cmd_finding_show(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_finding_promote(args: argparse.Namespace) -> int:
+    from chaos_agents import regression, runstore
+
+    try:
+        found = runstore.find(args.id, args.runs_dir)
+        campaign = None
+        if args.campaign:
+            campaign = _load_valid_campaign(args.campaign).to_dict()
+        promoted = regression.promote_finding(
+            found, args.regressions_dir, campaign=campaign, minimize=not args.no_minimize,
+            max_calls=args.max_calls, force=args.force)
+    except (runstore.FindingNotFound, runstore.AmbiguousFinding, CampaignError) as exc:
+        return _finding_args_error(exc)
+    except runstore.MissingSecret as exc:
+        return _finding_args_error(exc)
+    except regression.PromoteError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+    m = promoted.minimization
+    print(f"promoted {found.id} -> {promoted.path}/")
+    print(f"  {regression.ATTACK}  {regression.EXPECTED}  {regression.METADATA}  {regression.MINIMIZED}")
+    if m["applied"]:
+        print(f"  minimized: {m['original_length']} -> {m['minimized_length']} chars ({m['target_calls']} target calls)")
+    elif promoted.entry.get("scenario"):
+        print("  minimized: no (a memory scenario is replayed whole)")
+    print(f"  reproducible: {'yes' if promoted.reproducible else 'NO (forced)'}")
+    return 0
+
+
 def _cmd_plugins(args: argparse.Namespace) -> int:
     for group in ("providers", "adapters", "vectors", "judges"):
         names = registry.available(f"chaos_agents.{group}")
@@ -246,7 +285,9 @@ def main(argv: list[str] | None = None) -> int:
     bench_p.set_defaults(func=_cmd_bench)
 
     reg_p = sub.add_parser("regression", help="re-run a regression corpus; non-zero if any reproducer still fires")
-    reg_p.add_argument("baseline", help="path to a regression corpus directory (as written by run --promote)")
+    reg_p.add_argument("baseline", nargs="?",
+                       help=f"a regression directory (default: ./{DEFAULT_REGRESSIONS}); reads finding-promote folders "
+                            f"and run --promote files")
     reg_p.set_defaults(func=_cmd_regression)
 
     finding_p = sub.add_parser("finding", help="list and inspect confirmed findings from earlier runs")
@@ -262,6 +303,19 @@ def main(argv: list[str] | None = None) -> int:
     fshow.add_argument("--graph", nargs="?", const="box", choices=["box", "mermaid"],
                        help="also draw the attack graph (box, or mermaid)")
     fshow.set_defaults(func=_cmd_finding_show)
+    fpromote = finding_sub.add_parser(
+        "promote", help="turn a finding into a regression test: regressions/CB-xxxx/{attack,expected,metadata,minimized}")
+    fpromote.add_argument("id", help="finding id, e.g. CB-956b1f46 (any unambiguous prefix works)")
+    fpromote.add_argument("--runs-dir", default="runs", help="where runs were written (default: ./runs)")
+    fpromote.add_argument("--regressions-dir", default=DEFAULT_REGRESSIONS,
+                          help=f"where regression tests live (default: ./{DEFAULT_REGRESSIONS})")
+    fpromote.add_argument("--campaign", metavar="FILE",
+                          help="rebuild the target from this campaign file instead of the run's snapshot")
+    fpromote.add_argument("--no-minimize", action="store_true", help="keep the original payload")
+    fpromote.add_argument("--max-calls", type=int, default=100, help="target-call budget for minimizing (default: 100)")
+    fpromote.add_argument("--force", action="store_true",
+                          help="replace an existing regression, or promote one that did not reproduce")
+    fpromote.set_defaults(func=_cmd_finding_promote)
 
     validate_p = sub.add_parser("validate", help="check a campaign file without running it")
     validate_p.add_argument("campaign", help="path to a campaign YAML file")

@@ -48,17 +48,41 @@ class AmbiguousFinding(LookupError):
 
 # ---- secrets -----------------------------------------------------------------
 
-def redact(obj: Any, _key: str = "") -> Any:
+def canary_values(campaign: dict) -> set[str]:
+    """Values the campaign itself plants as tripwires: the judge's forbidden
+    strings and the policy's canaries. A synthetic canary is *supposed* to be
+    recognisable in the output, so it is never a credential to hide -- even
+    when it sits under a key like ``secret``."""
+    values: set[str] = set()
+    config = (campaign.get("judge") or {}).get("config") or {}
+    for key in ("forbidden_substrings", "forbidden", "patterns"):
+        items = config.get(key)
+        if isinstance(items, (list, tuple)):
+            values.update(i for i in items if isinstance(i, str))
+    flow = (campaign.get("policy") or {}).get("data_flow") or {}
+    for item in flow.get("canaries") or []:
+        values.add(item if isinstance(item, str) else str(item.get("value", "")))
+    values.discard("")
+    return values
+
+
+def redact(obj: Any, _key: str = "", keep: frozenset[str] | set[str] = frozenset()) -> Any:
     """A copy of `obj` with every secret-looking value replaced by ``${KEY}``.
-    A value is secret when the *key* it sits under looks like one; a nested
-    mapping under such a key is redacted whole."""
+    A value is secret when the *key* it sits under looks like one, unless it is
+    one of `keep` (the campaign's own canaries)."""
     if isinstance(obj, dict):
-        return {k: redact(v, str(k)) for k, v in obj.items()}
+        return {k: redact(v, str(k), keep) for k, v in obj.items()}
     if isinstance(obj, list):
-        return [redact(v, _key) for v in obj]
-    if _key and _SECRET_KEY.search(_key) and isinstance(obj, str) and obj and not _PLACEHOLDER.match(obj):
+        return [redact(v, _key, keep) for v in obj]
+    if (_key and _SECRET_KEY.search(_key) and isinstance(obj, str) and obj
+            and obj not in keep and not _PLACEHOLDER.match(obj)):
         return "${" + re.sub(r"[^A-Za-z0-9]+", "_", _key).strip("_").upper() + "}"
     return obj
+
+
+def redact_campaign(campaign: dict) -> dict:
+    """`redact` for a whole campaign dict, sparing the campaign's own canaries."""
+    return redact(campaign, keep=canary_values(campaign))
 
 
 def expand_env(obj: Any) -> Any:
@@ -84,7 +108,7 @@ def expand_env(obj: Any) -> Any:
 def write_snapshot(run_dir: Path, campaign) -> Path:
     """Record the campaign next to its results (secrets redacted)."""
     doc = {
-        "campaign": redact(campaign.to_dict()),
+        "campaign": redact_campaign(campaign.to_dict()),
         "source": campaign.source,
         "created": datetime.now(timezone.utc).isoformat(),
     }
