@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from chaos_agents import attackgraph
 from chaos_agents.corpus import Record
 
 
@@ -44,6 +45,8 @@ def render(campaign_name: str, records: list[Record]) -> str:
             lines.append(f"  [{r.severity.upper()}] {r.reason}")
             lines.append(f"    payload:  {r.payload}")
             lines.append(f"    response: {r.response}")
+            if chain := attackgraph.chain(r):
+                lines.append(f"    attack:   {chain}")
             lines.extend(f"    {line}" for line in flow_lines(r))
     else:
         lines.append("No findings.")

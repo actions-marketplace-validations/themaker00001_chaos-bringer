@@ -4,7 +4,7 @@ import argparse
 import sys
 from pathlib import Path
 
-from chaos_agents import registry, report
+from chaos_agents import attackgraph, registry, report
 from chaos_agents.campaign import Campaign, CampaignError
 from chaos_agents.corpus import Corpus
 from chaos_agents.interfaces import FAIL
@@ -34,6 +34,14 @@ def _cmd_validate(args: argparse.Namespace) -> int:
     return 0
 
 
+def _print_graphs(records, style: str) -> None:
+    """The attack graph of every confirmed finding, boxed or as Mermaid."""
+    render = attackgraph.to_mermaid if style == "mermaid" else attackgraph.render_box
+    graphs = [g for g in (render(r) for r in records) if g]
+    for graph in graphs:
+        print("\n" + graph)
+
+
 def _cmd_run(args: argparse.Namespace) -> int:
     try:
         campaign = _load_valid_campaign(args.campaign)
@@ -60,6 +68,9 @@ def _cmd_run(args: argparse.Namespace) -> int:
         records = run_campaign(campaign, corpus)
         if fmt == "terminal":
             print(report.render(campaign.name, records))
+
+    if args.graph and fmt == "terminal":
+        _print_graphs(records, args.graph)
 
     if fmt != "terminal":
         from chaos_agents import export
@@ -173,6 +184,8 @@ def main(argv: list[str] | None = None) -> int:
     run_p.add_argument("--format", choices=["terminal", "json", "sarif", "junit"], default="terminal",
                        help="output format (default: terminal). json/sarif/junit are for CI.")
     run_p.add_argument("--output", metavar="PATH", help="write the --format output to a file instead of stdout")
+    run_p.add_argument("--graph", nargs="?", const="box", choices=["box", "mermaid"],
+                       help="also draw each finding's attack graph (box, or mermaid for docs/PRs)")
     run_p.add_argument("--promote", metavar="DIR", help="promote confirmed findings into a regression corpus directory")
     run_p.add_argument("--minimize", action="store_true", help="with --promote, shrink each finding to a minimal reproducer first")
     run_p.set_defaults(func=_cmd_run)
