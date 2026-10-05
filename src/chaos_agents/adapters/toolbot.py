@@ -123,7 +123,7 @@ class ToolBotAdapter:
 
         if self.memory:
             notes = "\n".join(f"[{who}] {note}" for who, note in self.memory)
-            calls.append(ToolCall(name="memory_read", arguments={"query": payload}, result=notes))
+            calls.append(ToolCall(name="memory_read", arguments={"query": "recent notes"}, result=notes))
 
         if self.hardened and _has(text, "delete", "drop", "wipe", "send", "email", "post", "upload",
                                    "http", "forward", "exfiltrate", "document", "ignore previous"):

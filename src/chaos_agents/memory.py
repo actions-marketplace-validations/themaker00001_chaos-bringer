@@ -19,6 +19,12 @@ agent does on its own. Whether the trigger "misbehaved" is the campaign's judge
 and policy, exactly as for any other finding -- an unauthorized tool call, a
 canary leaving through an argument, a forbidden string in the reply.
 
+Judge what the agent did, not what its tools returned: a memory read hands the
+poisoned note straight back as a tool result, and a text judge that scans results
+would blame the agent for merely reading its own notes. Policies look at tool
+arguments and the reply, so they are safe; a substring judge should be told to
+ignore results (the ChaosBench memory probes do).
+
 A target takes part by implementing two methods (see ``MemoryTarget``):
 ``reset_memory()`` and ``observe_in_session(payload, session)``. A target
 without them can't be tested for this, and the orchestrator says so rather than

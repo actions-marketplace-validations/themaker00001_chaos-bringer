@@ -146,7 +146,7 @@ def _cmd_bench(args: argparse.Namespace) -> int:
     # model and each probe takes a second or two); only when stderr is a TTY,
     # so CI logs and piped output stay clean.
     progress = _bench_progress(len(suite.probes)) if sys.stderr.isatty() else None
-    card = benchmark.run_benchmark(suite, adapter, on_probe=progress)
+    card = benchmark.run_benchmark(suite, adapter, on_probe=progress, policy=campaign.policy)
 
     rendered = benchreport.FORMATS[args.format](card)
     if args.output:
