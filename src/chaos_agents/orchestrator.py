@@ -12,10 +12,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Callable
 
-from chaos_agents import findings, guard, observation, registry, taxonomy
+from chaos_agents import findings, guard, observation, registry, standards, taxonomy
 from chaos_agents.campaign import Campaign
 from chaos_agents.corpus import Corpus, Record
-from chaos_agents.interfaces import INCONCLUSIVE
+from chaos_agents.interfaces import FAIL, INCONCLUSIVE
 from chaos_agents.observation import Observation
 
 OnStep = Callable[[str], None]
@@ -82,6 +82,9 @@ def _verdict_record(payload: str, response, verdict, ctx: _Context, obs: Observa
     for key, value in (verdict.details.get("finding") or {}).items():
         if hasattr(record, key) and value:
             setattr(record, key, value)
+    if record.status == FAIL:  # file a confirmed finding under the frameworks it belongs to
+        record.owasp = standards.owasp_for(category, technique)
+        record.mitre_atlas = standards.atlas_for(category, technique)
     if obs is not None:  # carry the Observation stage into the corpus
         record.tool_calls = obs.tool_calls_as_dicts()
         record.latency_ms = round(obs.latency_ms, 3)

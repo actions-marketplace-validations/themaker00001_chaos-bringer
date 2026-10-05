@@ -18,6 +18,7 @@ from datetime import datetime, timezone
 from importlib.metadata import PackageNotFoundError, version
 from typing import Any
 
+from chaos_agents import standards
 from chaos_agents.corpus import Record
 from chaos_agents.findings import finding_id
 from chaos_agents.interfaces import FAIL, INCONCLUSIVE, PASS
@@ -59,6 +60,14 @@ def _details(r: Record) -> dict[str, Any]:
     return {k: getattr(r, k) for k in _DETAIL_FIELDS if getattr(r, k)}
 
 
+def _standards(r: Record) -> dict[str, Any]:
+    """OWASP / ATLAS tags, only on a confirmed finding and only when it has any."""
+    if (r.status or (PASS if r.passed else FAIL)) != FAIL:
+        return {}
+    owasp, atlas = standards.tags_for(r)
+    return {**({"owasp": owasp} if owasp else {}), **({"mitre_atlas": atlas} if atlas else {})}
+
+
 def _as_finding(r: Record) -> dict[str, Any]:
     return {
         "finding_id": finding_id(r.fingerprint) if r.fingerprint else None,
@@ -73,6 +82,7 @@ def _as_finding(r: Record) -> dict[str, Any]:
         "payload": r.payload,
         "response": r.response,
         **_details(r),
+        **_standards(r),
     }
 
 
@@ -88,12 +98,23 @@ def to_sarif(campaign_name: str, records: list[Record], run_id: str | None = Non
     fails = [r for r in records if (r.status or (FAIL if not r.passed else PASS)) == FAIL]
     rules: dict[str, dict] = {}
     results = []
+    used_owasp: set[str] = set()
+    used_atlas: set[str] = set()
     for r in fails:
         rule_id = f"{r.category or 'uncategorized'}/{r.technique or 'unspecified'}"
+        owasp, atlas = standards.tags_for(r)
+        used_owasp.update(owasp)
+        used_atlas.update(atlas)
         rules.setdefault(rule_id, {
             "id": rule_id,
             "name": rule_id.replace("/", "-"),
             "shortDescription": {"text": f"{r.category or 'uncategorized'}: {r.technique or 'unspecified'}"},
+            # tags are what code-scanning UIs show; relationships are the formal SARIF link to the taxonomies
+            "properties": {"tags": [f"OWASP-Agentic:{i}" for i in owasp] + [f"ATLAS:{i}" for i in atlas]},
+            "relationships": (
+                [{"target": {"id": i, "toolComponent": {"name": standards.OWASP_NAME}}, "kinds": ["relevant"]} for i in owasp]
+                + [{"target": {"id": i, "toolComponent": {"name": standards.ATLAS_NAME}}, "kinds": ["relevant"]} for i in atlas]
+            ),
         })
         result = {
             "ruleId": rule_id,
@@ -118,6 +139,7 @@ def to_sarif(campaign_name: str, records: list[Record], run_id: str | None = Non
                 "rules": list(rules.values()),
             }},
             "results": results,
+            **({"taxonomies": tax} if (tax := standards.sarif_taxonomies(used_owasp, used_atlas)) else {}),
         }],
     }
     return json.dumps(doc, indent=2)

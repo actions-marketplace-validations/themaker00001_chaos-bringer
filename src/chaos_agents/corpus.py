@@ -41,6 +41,8 @@ class Record:
     sink: str = ""               # where the data/action ended up: a host, or the resource acted on
     source: str = ""             # where tracked data came from, e.g. "document: q3_notes.pdf"
     data: str = ""               # the tracked canary that moved
+    owasp: list[str] = field(default_factory=list)        # OWASP Agentic Top 10 ids, e.g. ASI01
+    mitre_atlas: list[str] = field(default_factory=list)  # MITRE ATLAS technique ids, e.g. AML.T0086
     attack_path: list[str] = field(default_factory=list)  # the observed route, stage by stage
 
 
