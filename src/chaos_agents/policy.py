@@ -40,6 +40,7 @@ from typing import Any
 
 from chaos_agents.hosts import host_allowed, host_of
 from chaos_agents.observation import Observation, ToolCall
+from chaos_agents.taint import DataFlow, DataFlowError
 
 ALLOW = "allow"
 DENY = "deny"
@@ -58,7 +59,7 @@ _DESTINATION_KEYS = ("url", "uri", "endpoint", "to", "recipient", "recipients", 
 _RESOURCE_KEYS = ("table", "database", "db", "collection", "resource", "path", "file",
                   "filename", "bucket", "key", "target")
 
-_TOP_KEYS = {"capabilities", "default"}
+_TOP_KEYS = {"capabilities", "default", "data_flow"}
 _RULE_KEYS = {"action", "destinations", "tools", "severity"}
 
 
@@ -101,13 +102,15 @@ class Violation:
     attack_path: list[str] = field(default_factory=list)
     source: str = ""
     data: str = ""
+    result: str = ""                # data-flow outcome: EXFILTRATION | DISCLOSURE | ...
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "kind": self.kind, "severity": self.severity, "reason": self.reason,
             "capability": self.capability, "tool": self.tool, "sink": self.sink,
             "action": self.action, "rule": self.rule, "arguments": self.arguments,
-            "source": self.source, "data": self.data, "attack_path": list(self.attack_path),
+            "source": self.source, "data": self.data, "result": self.result,
+            "attack_path": list(self.attack_path),
         }
 
     def finding_fields(self) -> dict[str, Any]:
@@ -157,12 +160,13 @@ def _as_list(value: Any, where: str) -> list[str]:
 
 class Policy:
     def __init__(self, capabilities: dict[str, Rule] | None = None, default: str = ALLOW,
-                 spec: dict[str, Any] | None = None) -> None:
+                 spec: dict[str, Any] | None = None, data_flow: DataFlow | None = None) -> None:
         if default not in ACTIONS:
             raise PolicyError(f"policy.default must be one of {', '.join(ACTIONS)}, got {default!r}")
         self.capabilities = capabilities or {}
         self.default = default
         self.spec = spec or {}
+        self.data_flow = data_flow
 
     # ---- construction -----------------------------------------------------
     @classmethod
@@ -179,7 +183,13 @@ class Policy:
         rules: dict[str, Rule] = {}
         for name, raw in caps.items():
             rules[str(name)] = cls._parse_rule(str(name), raw)
-        return cls(rules, default=data.get("default", ALLOW), spec=dict(data))
+        data_flow = None
+        if data.get("data_flow") is not None:
+            try:
+                data_flow = DataFlow.from_dict(data["data_flow"])
+            except DataFlowError as exc:
+                raise PolicyError(str(exc)) from exc
+        return cls(rules, default=data.get("default", ALLOW), spec=dict(data), data_flow=data_flow)
 
     @staticmethod
     def _parse_rule(name: str, raw: Any) -> Rule:
@@ -223,7 +233,18 @@ class Policy:
         violations: list[Violation] = []
         for call in observation.tool_calls:
             violations.extend(self._check_call(call))
+        if self.data_flow:
+            violations.extend(self.data_flow.check(observation, self.trusted_destinations(), self._capability_of))
         return violations
+
+    def trusted_destinations(self) -> list[str]:
+        """Every host some capability is allowed to talk to: where data may
+        legitimately go when data_flow names no destinations of its own."""
+        return [d for rule in self.capabilities.values() if rule.action == ALLOW for d in rule.destinations]
+
+    def _capability_of(self, tool: str) -> str:
+        rule = self.rule_for(tool)
+        return rule.capability if rule else tool
 
     def _check_call(self, call: ToolCall) -> list[Violation]:
         rule = self.rule_for(call.name)

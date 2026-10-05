@@ -47,6 +47,8 @@ def merge(base: Verdict, violations: list[Violation]) -> Verdict:
         details.setdefault("finding", worst.finding_fields())
         return replace(base, details=details)
     extra = f" (+{len(violations) - 1} more)" if len(violations) > 1 else ""
+    if base.status == FAIL:
+        details["judge_reason"] = base.reason     # the judge also failed it, just less severely
     details["finding"] = worst.finding_fields()
     return Verdict(
         passed=False, status=FAIL, severity=worst.severity, reason=worst.reason + extra,

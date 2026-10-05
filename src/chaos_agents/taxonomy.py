@@ -19,7 +19,7 @@ TAXONOMY: dict[str, tuple[str, ...]] = {
     ),
     "sensitive_data": (
         "secret_extraction", "system_prompt_leakage",
-        "memory_context_leakage", "cross_user_leakage",
+        "memory_context_leakage", "cross_user_leakage", "tool_exfiltration",
     ),
     "tool_misuse": (
         "tool_output_poisoning", "argument_mutation",
