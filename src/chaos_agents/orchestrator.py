@@ -12,7 +12,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Callable
 
-from chaos_agents import findings, guard, memory, observation, registry, standards, taxonomy
+from chaos_agents import findings, guard, memory, observation, registry, runstore, standards, taxonomy
 from chaos_agents.campaign import Campaign, CampaignError
 from chaos_agents.corpus import Corpus, Record
 from chaos_agents.interfaces import FAIL, INCONCLUSIVE
@@ -206,6 +206,7 @@ def run_campaign(
     ctx = _Context(target=campaign.adapter.plugin, category=campaign.category, technique=campaign.technique,
                    vector=campaign.vector.plugin)
     records: list[Record] = []
+    runstore.write_snapshot(corpus.run_dir, campaign)   # so a finding can be rebuilt (promote, replay)
 
     def sink(record: Record) -> None:
         corpus.record(record)

@@ -50,6 +50,8 @@ class Campaign:
     # optional capability policy: what the agent may do, checked against every
     # tool call it makes (see chaos_agents.policy)
     policy: Policy | None = None
+    # the file this campaign was loaded from (empty when built in code)
+    source: str = ""
 
     @classmethod
     def from_yaml(cls, path: str | Path) -> Campaign:
@@ -94,6 +96,7 @@ class Campaign:
             category=category,
             technique=technique,
             policy=policy,
+            source=str(path.resolve()),
         )
 
     def to_dict(self) -> dict:

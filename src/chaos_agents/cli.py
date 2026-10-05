@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from pathlib import Path
 
@@ -170,6 +171,43 @@ def _cmd_regression(args: argparse.Namespace) -> int:
     return 1 if any(r.still_vulnerable for r in results) else 0
 
 
+def _finding_args_error(exc: Exception) -> int:
+    print(str(exc), file=sys.stderr)
+    return 2
+
+
+def _cmd_finding_list(args: argparse.Namespace) -> int:
+    from chaos_agents import runstore, securityfinding
+
+    located = runstore.list_findings(args.runs_dir)
+    if args.json:
+        print(json.dumps([securityfinding.from_record(f.record, f.run_info()).to_dict() for f in located], indent=2))
+        return 0
+    if not located:
+        print(f"no findings under {args.runs_dir}/ (run a campaign first)")
+        return 0
+    print(f"{len(located)} finding(s) under {args.runs_dir}/\n")
+    for f in located:
+        r = f.record
+        print(f"  {f.id}  {r.severity.upper():<8} {r.category}/{r.technique:<24} {f.campaign}"
+              + (f"  x{f.occurrences}" if f.occurrences > 1 else ""))
+    return 0
+
+
+def _cmd_finding_show(args: argparse.Namespace) -> int:
+    from chaos_agents import runstore, securityfinding
+
+    try:
+        found = runstore.find(args.id, args.runs_dir)
+    except runstore.FindingNotFound as exc:
+        return _finding_args_error(exc)
+    except runstore.AmbiguousFinding as exc:
+        return _finding_args_error(exc)
+    finding = securityfinding.from_record(found.record, found.run_info())
+    print(json.dumps(finding.to_dict(), indent=2) if args.json else finding.render(graph=args.graph or ""))
+    return 0
+
+
 def _cmd_plugins(args: argparse.Namespace) -> int:
     for group in ("providers", "adapters", "vectors", "judges"):
         names = registry.available(f"chaos_agents.{group}")
@@ -210,6 +248,20 @@ def main(argv: list[str] | None = None) -> int:
     reg_p = sub.add_parser("regression", help="re-run a regression corpus; non-zero if any reproducer still fires")
     reg_p.add_argument("baseline", help="path to a regression corpus directory (as written by run --promote)")
     reg_p.set_defaults(func=_cmd_regression)
+
+    finding_p = sub.add_parser("finding", help="list and inspect confirmed findings from earlier runs")
+    finding_sub = finding_p.add_subparsers(dest="finding_command", required=True)
+    flist = finding_sub.add_parser("list", help="every distinct confirmed finding under the runs directory")
+    flist.add_argument("--runs-dir", default="runs", help="where runs were written (default: ./runs)")
+    flist.add_argument("--json", action="store_true", help="machine-readable output")
+    flist.set_defaults(func=_cmd_finding_list)
+    fshow = finding_sub.add_parser("show", help="show one finding in full: attack, evidence, path, standards")
+    fshow.add_argument("id", help="finding id, e.g. CB-956b1f46 (any unambiguous prefix works)")
+    fshow.add_argument("--runs-dir", default="runs", help="where runs were written (default: ./runs)")
+    fshow.add_argument("--json", action="store_true", help="the finding as JSON")
+    fshow.add_argument("--graph", nargs="?", const="box", choices=["box", "mermaid"],
+                       help="also draw the attack graph (box, or mermaid)")
+    fshow.set_defaults(func=_cmd_finding_show)
 
     validate_p = sub.add_parser("validate", help="check a campaign file without running it")
     validate_p.add_argument("campaign", help="path to a campaign YAML file")
