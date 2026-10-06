@@ -34,6 +34,16 @@ class Record:
     # Observation stage: what the agent *did*, not just the reply text in `response`
     tool_calls: list[dict[str, Any]] = field(default_factory=list)  # name/arguments/result per call
     latency_ms: float = 0.0      # how long the target took to answer this trial
+    # Security-finding detail: where the compromise came from, went, and by what route
+    target: str = ""             # the system under test (the adapter plugin)
+    vector: str = ""             # how the attack was delivered (the vector plugin)
+    capability: str = ""         # the agent capability involved, e.g. http_request
+    sink: str = ""               # where the data/action ended up: a host, or the resource acted on
+    source: str = ""             # where tracked data came from, e.g. "document: q3_notes.pdf"
+    data: str = ""               # the tracked canary that moved
+    owasp: list[str] = field(default_factory=list)        # OWASP Agentic Top 10 ids, e.g. ASI01
+    mitre_atlas: list[str] = field(default_factory=list)  # MITRE ATLAS technique ids, e.g. AML.T0086
+    attack_path: list[str] = field(default_factory=list)  # the observed route, stage by stage
 
 
 class Corpus:

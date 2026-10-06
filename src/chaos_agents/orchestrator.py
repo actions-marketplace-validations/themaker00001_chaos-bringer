@@ -12,10 +12,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Callable
 
-from chaos_agents import findings, observation, registry, taxonomy
-from chaos_agents.campaign import Campaign
+from chaos_agents import findings, guard, memory, observation, registry, runstore, standards, taxonomy
+from chaos_agents.campaign import Campaign, CampaignError
 from chaos_agents.corpus import Corpus, Record
-from chaos_agents.interfaces import INCONCLUSIVE
+from chaos_agents.interfaces import FAIL, INCONCLUSIVE
 from chaos_agents.observation import Observation
 
 OnStep = Callable[[str], None]
@@ -30,6 +30,7 @@ class _Context:
     target: str
     category: str
     technique: str
+    vector: str = ""
 
 
 def _fp(record: Record, ctx: _Context) -> str:
@@ -50,33 +51,93 @@ def _error_record(payload: str, exc: Exception, ctx: _Context) -> Record:
         confidence=1.0,
         category=taxonomy.OPERATIONAL,
         technique="target_error",
+        target=ctx.target,
+        vector=ctx.vector,
     )
     record.fingerprint = _fp(record, ctx)
     return record
 
 
-def _verdict_record(payload: str, response, verdict, ctx: _Context, obs: Observation | None = None) -> Record:
-    # the judge may classify the trial itself; otherwise use the campaign's tags
+def _verdict_record(payload: str, response, verdict, ctx: _Context, obs: Observation | None = None,
+                    tags: tuple[str, str] | None = None) -> Record:
+    # the judge may classify the trial itself; otherwise use the campaign's tags.
+    # `tags` overrides both: a memory finding is filed as memory poisoning, with
+    # what the poisoned memory made the agent do kept in details["underlying"]
     category = verdict.category or ctx.category
     technique = verdict.technique or ctx.technique
+    details = verdict.details
+    if tags:
+        if category or technique:
+            details = {**details, "underlying": {"category": category, "technique": technique}}
+        category, technique = tags
     record = Record(
         payload=payload,
         response=response,
         passed=verdict.passed,
         severity=verdict.severity,
         reason=verdict.reason,
-        details=verdict.details,
+        details=details,
         status=verdict.status,
         confidence=verdict.confidence,
         category=category,
         technique=technique,
         impact=verdict.impact,
+        target=ctx.target,
+        vector=ctx.vector,
     )
+    record.details = details
+    # a judge or guard that traced the compromise (capability, sink, route) says so
+    # in details["finding"]; lift it onto the record's typed fields
+    for key, value in (verdict.details.get("finding") or {}).items():
+        if hasattr(record, key) and value:
+            setattr(record, key, value)
+    if record.status == FAIL:  # file a confirmed finding under the frameworks it belongs to
+        record.owasp = standards.owasp_for(category, technique)
+        record.mitre_atlas = standards.atlas_for(category, technique)
     if obs is not None:  # carry the Observation stage into the corpus
         record.tool_calls = obs.tool_calls_as_dicts()
         record.latency_ms = round(obs.latency_ms, 3)
     record.fingerprint = _fp(record, ctx)
     return record
+
+
+def _memory_record(outcome: memory.Outcome, ctx: _Context) -> Record:
+    """A cross-session trial as a Record: the poison is the payload, the
+    victim's reply is the response, and a finding is filed as memory poisoning."""
+    scenario = outcome.scenario
+    if outcome.status == INCONCLUSIVE and outcome.control_verdict.status != "pass":
+        record = Record(
+            payload=scenario.poison, response=outcome.trigger.response, passed=False, severity="medium",
+            reason=outcome.reason, details={}, status=INCONCLUSIVE, category=taxonomy.OPERATIONAL,
+            technique="control_failed", target=ctx.target, vector=ctx.vector,
+        )
+        record.fingerprint = _fp(record, ctx)
+    else:
+        tags = (memory.CATEGORY, scenario.technique) if outcome.status == FAIL else None
+        record = _verdict_record(scenario.poison, outcome.trigger.response, outcome.verdict, ctx,
+                                 obs=outcome.trigger, tags=tags)
+        if outcome.status == FAIL:
+            record.attack_path = memory.route(record.attack_path)
+            record.reason = f"MEMORY POISONING ({scenario.technique}): {record.reason}"
+            record.impact = record.impact or "a poisoned memory made the agent act against policy in another session"
+    record.details = {**record.details, "memory": outcome.describe()}
+    return record
+
+
+def _run_memory(vector, adapter, judge, ctx, on_step, on_result, sink) -> None:
+    for scenario in vector.scenarios():
+        if on_step:
+            on_step(scenario.poison)
+        try:
+            outcome = memory.run_scenario(adapter, judge, scenario)
+        except Exception as exc:  # noqa: BLE001 -- a target that dies mid-scenario is inconclusive
+            sink(_error_record(scenario.poison, exc, ctx))
+            continue
+        sink(_memory_record(outcome, ctx))
+
+
+def _is_memory(vector) -> bool:
+    return callable(getattr(vector, "scenarios", None))
 
 
 def _is_multiturn(vector, adapter) -> bool:
@@ -140,10 +201,12 @@ def run_campaign(
     """
     adapter = registry.load("chaos_agents.adapters", campaign.adapter.plugin, **campaign.adapter.config)
     vector = registry.load("chaos_agents.vectors", campaign.vector.plugin, **campaign.vector.config)
-    judge = registry.load("chaos_agents.judges", campaign.judge.plugin, **campaign.judge.config)
+    judge = guard.judge_for(campaign)  # the campaign's judge, with its policy folded in
 
-    ctx = _Context(target=campaign.adapter.plugin, category=campaign.category, technique=campaign.technique)
+    ctx = _Context(target=campaign.adapter.plugin, category=campaign.category, technique=campaign.technique,
+                   vector=campaign.vector.plugin)
     records: list[Record] = []
+    runstore.write_snapshot(corpus.run_dir, campaign)   # so a finding can be rebuilt (promote, replay)
 
     def sink(record: Record) -> None:
         corpus.record(record)
@@ -151,6 +214,16 @@ def run_campaign(
         if on_result:
             on_result(record)
 
-    run = _run_multiturn if _is_multiturn(vector, adapter) else _run_single
+    if _is_memory(vector):
+        # fail loudly: running just the poison against a target with no memory
+        # would "pass" every time and prove nothing
+        if not memory.supports_memory(adapter):
+            raise CampaignError(
+                f"vector {campaign.vector.plugin!r} tests memory poisoning, but adapter "
+                f"{campaign.adapter.plugin!r} has no persistent memory "
+                f"(it needs reset_memory() and observe_in_session(payload, session))")
+        run = _run_memory
+    else:
+        run = _run_multiturn if _is_multiturn(vector, adapter) else _run_single
     run(vector, adapter, judge, ctx, on_step, on_result, sink)
     return records

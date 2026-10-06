@@ -57,6 +57,7 @@ mcp_fault = "chaos_agents.adapters.mcp_fault:McpFaultProxy"
 a2a = "chaos_agents.adapters.a2a:A2AAdapter"
 chatgpt_app = "chaos_agents.adapters.mcp_app:McpAppAdapter"
 sandbox = "chaos_agents.adapters.sandbox:SandboxTarget"
+toolbot = "chaos_agents.adapters.toolbot:ToolBotAdapter"
 
 [project.entry-points."chaos_agents.vectors"]
 static_corpus = "chaos_agents.vectors.static_corpus:StaticCorpusVector"
@@ -64,6 +65,7 @@ llm = "chaos_agents.vectors.llm:LLMVector"
 multiturn = "chaos_agents.vectors.multiturn:MultiTurnVector"
 indirect = "chaos_agents.vectors.indirect:IndirectVector"
 mutation = "chaos_agents.vectors.mutation:MutationVector"
+memory_poison = "chaos_agents.vectors.memory_poison:MemoryPoisonVector"
 
 [project.entry-points."chaos_agents.judges"]
 rule_based = "chaos_agents.judges.rule_based:RuleBasedJudge"
