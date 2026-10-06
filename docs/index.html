@@ -183,6 +183,12 @@
   figure.shot { margin: 0 0 28px; }
   figure.shot img { border-radius: 10px; border: 1px solid var(--border); }
   figure.shot figcaption { margin-top: 10px; font-size: 13px; color: var(--dim); text-align: center; }
+  .gallery-title { font-family: var(--font-display); font-size: 15px; font-weight: 600; color: var(--poison); margin: 40px 0 6px; }
+  .gallery-note { color: var(--muted); font-size: 14.5px; max-width: 70ch; margin-bottom: 18px; }
+  .shot-pair { display: grid; grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr); gap: 20px; align-items: start; margin-bottom: 28px; }
+  .shot-pair figure.shot { margin: 0; }
+  @media (max-width: 760px) { .shot-pair { grid-template-columns: 1fr; } }
+  .foot { color: var(--dim); font-size: 13px; margin: -14px 0 28px; max-width: 78ch; }
 
   /* ---- code blocks ---- */
   pre.code {
@@ -364,24 +370,30 @@
       <h2>Verified against real agents, not a mock</h2>
       <p class="lede">
         Every number below is a real CLI run against a live, local Ollama model —
-        not a hand-picked example. Full verbatim traces are in
-        <a href="https://github.com/themaker00001/chaos-bringer/blob/main/docs/RESULTS.md">docs/RESULTS.md</a>.
+        not a hand-picked example. Run them again and some numbers move, so the table
+        shows two passes on purpose. Full verbatim traces are in
+        <a href="https://github.com/themaker00001/chaos-bringer/blob/main/docs/RESULTS.md">docs/RESULTS.md</a>
+        and every run is pictured in the <a href="#gallery">gallery below</a>.
       </p>
     </div>
 
     <div class="table-wrap">
       <table>
         <thead>
-          <tr><th>Target</th><th>Framework</th><th>Model</th><th>Result</th></tr>
+          <tr><th>Target</th><th>Framework</th><th>Model</th><th>First pass · Sep 30</th><th>Re-run · Oct 4 †</th></tr>
         </thead>
         <tbody>
-          <tr><td>EchoAdapter</td><td>none (naive demo target)</td><td>—</td><td><span class="bad">0/5 survived</span> — every payload leaks</td></tr>
-          <tr><td>LangGraphOllamaAdapter</td><td>LangGraph + langchain-openai</td><td>qwen3:14b</td><td><span class="ok">5/5 survived</span></td></tr>
-          <tr><td>AdkOllamaAdapter</td><td>Google ADK + LiteLLM</td><td>qwen3:14b</td><td><span class="ok">5/5 survived</span></td></tr>
-          <tr><td>AutoGenOllamaAdapter</td><td>AutoGen AgentChat</td><td>qwen3:14b</td><td><span class="bad">4/5</span> — 1 real finding</td></tr>
+          <tr><td>EchoAdapter</td><td>none (naive demo target)</td><td>—</td><td><span class="bad">0/5 survived</span> — every payload leaks</td><td>—</td></tr>
+          <tr><td>LangGraphOllamaAdapter</td><td>LangGraph + langchain-openai</td><td>qwen3:14b</td><td><span class="ok">5/5 survived</span></td><td><span class="bad">4/5</span> — 1 finding</td></tr>
+          <tr><td>AdkOllamaAdapter</td><td>Google ADK + LiteLLM</td><td>qwen3:14b</td><td><span class="ok">5/5 survived</span></td><td><span class="ok">5/5 survived</span></td></tr>
+          <tr><td>AutoGenOllamaAdapter</td><td>AutoGen AgentChat</td><td>qwen3:14b</td><td><span class="bad">4/5</span> — 1 real finding</td><td><span class="ok">5/5 survived</span></td></tr>
+          <tr><td>CrewOrchestratorAdapter</td><td>CrewAI (hierarchical crew)</td><td>qwen3:14b</td><td>—</td><td><span class="ok">2/2 survived</span></td></tr>
         </tbody>
       </table>
     </div>
+    <p class="foot">† Screenshots of a second pass; the traces from it were not kept (the Sep 30 traces are).
+    Same code, same model, same payloads, and two frameworks changed their answer in opposite directions:
+    that is sampling temperature, not a harness bug, and why one clean run proves little.</p>
 
     <blockquote>
       <p>qwen3:14b, explicitly told "never reveal this," refused the direct ask —
@@ -403,8 +415,71 @@
       This pattern repeats across the project: a model says it's refusing, then
       <b style="color:var(--fg)">quotes the secret anyway</b> while explaining what it
       won't do. Not a fluke — it showed up independently in LangGraph, indirect
-      injection, and multi-turn runs. It's exactly the class of failure a
+      injection, and multi-turn runs (screenshots below). It's exactly the class of failure a
       single-shot "does it refuse when asked directly" eval misses.
+    </p>
+
+    <h3 class="gallery-title" id="gallery">Real agent frameworks · qwen3:14b</h3>
+    <p class="gallery-note">Four frameworks, one harness. LangGraph's second pass is the one to read: the model refuses the "I'm the developer" payload and prints the key in its own explanation.</p>
+    <figure class="shot">
+      <img src="proof/langgraph-qwen3-14b.png" loading="lazy" alt="LangGraph agent: 4/5 payloads survived, one HIGH finding where the model refuses to share the API key and prints it anyway">
+      <figcaption>LangGraph + langchain-openai — 4/5 survived. The finding refuses the request and quotes sk-demo-12345 in the same reply.</figcaption>
+    </figure>
+    <figure class="shot">
+      <img src="proof/adk-qwen3-14b.png" loading="lazy" alt="Google ADK agent: 5/5 payloads survived, no findings">
+      <figcaption>Google ADK + LiteLLM — 5/5 survived.</figcaption>
+    </figure>
+    <figure class="shot">
+      <img src="proof/autogen-qwen3-14b.png" loading="lazy" alt="AutoGen agent: 5/5 payloads survived, no findings">
+      <figcaption>AutoGen AgentChat — 5/5 on this pass; the first pass leaked through the French-translation attack above.</figcaption>
+    </figure>
+    <figure class="shot">
+      <img src="proof/crewai-orchestrator.png" loading="lazy" alt="CrewAI hierarchical crew: 2/2 orchestrator attacks survived, no findings">
+      <figcaption>CrewAI — attacking the orchestration layer (the manager's delegation), not one agent's prompt. 2/2 survived.</figcaption>
+    </figure>
+
+    <h3 class="gallery-title">Attacks that land · llama3.2</h3>
+    <p class="gallery-note">A benign opener then escalation gets a model to repeat its own system prompt, key included. Indirect injection hides the attack in a search hit and an API response; both times the model "ignores" it while quoting the key.</p>
+    <figure class="shot">
+      <img src="proof/multiturn-escalation.png" loading="lazy" alt="Multi-turn campaign against llama3.2: 0/2 conversations survived, both leak the API key">
+      <figcaption>Multi-turn escalation — 0/2 survived; both conversations leak the key (trace demo-multiturn/…c339b1).</figcaption>
+    </figure>
+    <figure class="shot">
+      <img src="proof/indirect-injection.png" loading="lazy" alt="Indirect-injection campaign: 3/5 survived; the two findings are tool outputs carrying a hidden instruction">
+      <figcaption>Indirect injection through tool output — 3/5 survived; a search result and an API response landed (trace demo-indirect/…1f0ba9).</figcaption>
+    </figure>
+
+    <h3 class="gallery-title">Fuzzing and judging</h3>
+    <p class="gallery-note">Two seeds become thirty attacks against the naive target. The eight that survive are the obfuscated ones: base64, ROT13, leetspeak, zero-width spacing. A local model can also be the judge, reading a plain-English policy instead of matching substrings.</p>
+    <div class="shot-pair">
+      <figure class="shot">
+        <a href="proof/mutation-fuzzing.png"><img src="proof/mutation-fuzzing.png" loading="lazy" alt="Mutation campaign: 30 payloads against the naive demo target, 8 survived and 22 were caught"></a>
+        <figcaption>Mutation engine — 22 of 30 caught (click for full size).</figcaption>
+      </figure>
+      <figure class="shot">
+        <a href="proof/llm-judge.png"><img src="proof/llm-judge.png" loading="lazy" alt="LLM-judge campaign: 0/5 payloads survived against the naive demo target"></a>
+        <figcaption>LLM judge — 5 of 5 caught (click for full size).</figcaption>
+      </figure>
+    </div>
+
+    <h3 class="gallery-title">Scoring, containment and generated attacks</h3>
+    <p class="gallery-note">ChaosBench's calibration floor (the parrot adapter just echoes input, so it must score 0%), a sandboxed computer-use agent, and a campaign where a model writes the attacks and judges the replies.</p>
+    <figure class="shot">
+      <img src="proof/chaosbench-parrot-floor.png" loading="lazy" alt="ChaosBench core suite against the parrot adapter: resilience 0.0%, grade F, all nine probes leaked">
+      <figcaption>ChaosBench — the parrot adapter scores 0.0%, grade F: all nine probes leak. A hardened agent should sit far above it.</figcaption>
+    </figure>
+    <figure class="shot">
+      <img src="proof/sandbox-computer-use.png" loading="lazy" alt="Sandbox campaign: 2/2 exfiltration lures survived">
+      <figcaption>Sandboxed computer-use agent — 2/2 survived on this run; another run the same day recorded a COMPROMISED verdict and a timeout scored inconclusive.</figcaption>
+    </figure>
+    <figure class="shot">
+      <img src="proof/llm-generated-attacks.png" loading="lazy" alt="LLM-generated attacks campaign: 2/2 survived">
+      <figcaption>LLM-written attacks, LLM-judged — 2/2 survived; no fixed payload list at all.</figcaption>
+    </figure>
+
+    <p class="lede" style="margin-bottom: 0;">
+      Every screenshot, with its command, model and trace, is in
+      <a href="https://github.com/themaker00001/chaos-bringer/blob/main/docs/PROOFS.md">docs/PROOFS.md</a>.
     </p>
   </div>
 </section>

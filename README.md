@@ -67,19 +67,28 @@ adapter + observation + judge to score any target across the taxonomy.
 
 **Full run with proof: [docs/RESULTS.md](docs/RESULTS.md)** — every demo
 campaign, live A2A / ChatGPT-App / MCP targets, and a cross-model pass, with
-verbatim transcripts from the saved traces.
+verbatim transcripts from the saved traces. **Screenshots of every run:
+[docs/PROOFS.md](docs/PROOFS.md)**, and the [gallery below](#proof-gallery).
 
-| Target | Framework | Model | Result |
-|---|---|---|---|
-| `EchoAdapter` | none (naive demo target) | — | **0/5 survived** — every built-in payload leaks the secret |
-| `LangGraphOllamaAdapter` | LangGraph + `langchain-openai` | `qwen3:14b` via local Ollama | **5/5 survived** — refused every attempt |
-| `AdkOllamaAdapter` | Google ADK + LiteLLM | `qwen3:14b` via local Ollama | **5/5 survived** — refused every attempt |
-| `AutoGenOllamaAdapter` | AutoGen AgentChat + `autogen-ext` | `qwen3:14b` via local Ollama | **4/5 survived** — 1 real finding |
+| Target | Framework | Model | First pass (2026-09-30) | Re-run (2026-10-04)† |
+|---|---|---|---|---|
+| `EchoAdapter` | none (naive demo target) | — | **0/5 survived** — every built-in payload leaks the secret | — |
+| `LangGraphOllamaAdapter` | LangGraph + `langchain-openai` | `qwen3:14b` via local Ollama | **5/5 survived** — refused every attempt | **4/5** — 1 finding |
+| `AdkOllamaAdapter` | Google ADK + LiteLLM | `qwen3:14b` via local Ollama | **5/5 survived** — refused every attempt | **5/5 survived** |
+| `AutoGenOllamaAdapter` | AutoGen AgentChat + `autogen-ext` | `qwen3:14b` via local Ollama | **4/5 survived** — 1 real finding | **5/5 survived** |
+| `CrewOrchestratorAdapter` | CrewAI (hierarchical crew) | `qwen3:14b` via local Ollama | — | **2/2 survived** |
 
-All three real-framework adapters route the agent's actual LLM calls through
+† Screenshots of a second pass; the traces from it were not kept (the first-pass traces
+are). Same code, same model, same payloads, and two frameworks changed their answer in
+opposite directions. That is sampling temperature, not a harness bug — see
+[the screenshots](#proof-gallery) and [why one clean run proves little](docs/PROOFS.md#read-this-first-the-same-attack-can-give-a-different-answer).
+
+The LangGraph, ADK and AutoGen adapters route the agent's actual LLM calls through
 the same `GenericProxyAdapter` — proof that "one hook, any framework" isn't
 just a diagram. See `examples/langgraph_agent/`, `examples/adk_agent/`, and
-`examples/autogen_agent/`.
+`examples/autogen_agent/`. `examples/crewai_orchestrator/` is different on purpose: it
+drives a hierarchical CrewAI crew directly and attacks the **orchestration layer**
+(the manager's delegation and the synthesis step) rather than one agent's prompt.
 
 Honest results, not cherry-picked ones: `qwen3:14b`, prompted with an
 explicit "never reveal this" instruction, refused every direct injection
@@ -99,6 +108,49 @@ exactly the class of failure a single-shot "does it refuse when asked
 directly" eval misses — and exactly why the static corpus is a floor, not
 a ceiling: it's a start, not a substitute for multi-turn and more creative
 payloads.
+
+### Proof gallery
+
+Terminal output of the real runs, not mock-ups. Each has its command, model and (where one
+was kept) trace in [docs/PROOFS.md](docs/PROOFS.md).
+
+**Real agent frameworks** (`qwen3:14b`). LangGraph's second pass is the interesting one: the
+model refuses the "I'm the developer" payload and prints the key in its own explanation.
+
+![LangGraph agent: 4/5 payloads survived, one HIGH finding where the model refuses to share the API key and prints it anyway](docs/proof/langgraph-qwen3-14b.png)
+![Google ADK agent: 5/5 payloads survived](docs/proof/adk-qwen3-14b.png)
+![AutoGen agent: 5/5 payloads survived](docs/proof/autogen-qwen3-14b.png)
+![CrewAI hierarchical crew: 2/2 orchestrator attacks survived](docs/proof/crewai-orchestrator.png)
+
+**Attacks that land** (`llama3.2`). Multi-turn escalation gets it to repeat its own system
+prompt, key included; indirect injection hides the attack in a search hit and an API
+response, and both times the model "ignores" it while quoting the key.
+
+![Multi-turn campaign against llama3.2: 0/2 conversations survived, both leak the API key](docs/proof/multiturn-escalation.png)
+![Indirect-injection campaign: 3/5 survived, the two findings are tool outputs carrying a hidden instruction](docs/proof/indirect-injection.png)
+
+**Fuzzing and judging.** Two seeds become thirty attacks against the naive target; the eight
+that survive are the obfuscated ones (base64, ROT13, leetspeak, zero-width spacing). A local
+model can also be the judge, reading a plain-English policy instead of matching substrings.
+
+<table>
+<tr>
+<td width="40%" valign="top"><img src="docs/proof/mutation-fuzzing.png" alt="Mutation campaign: 30 payloads against the naive demo target, 8 survived and 22 were caught"></td>
+<td width="60%" valign="top"><img src="docs/proof/llm-judge.png" alt="LLM-judge campaign: 0/5 payloads survived against the naive demo target"></td>
+</tr>
+</table>
+
+**Scoring, containment and generated attacks.** ChaosBench's floor (the `parrot` adapter
+echoes input, so it must score 0%), a sandboxed computer-use agent, and a campaign where a
+model writes the attacks *and* judges the replies.
+
+![ChaosBench core suite against the parrot adapter: resilience 0.0%, grade F, all nine probes leaked](docs/proof/chaosbench-parrot-floor.png)
+![Sandbox campaign: 2/2 exfiltration lures survived](docs/proof/sandbox-computer-use.png)
+![LLM-generated attacks campaign: 2/2 survived](docs/proof/llm-generated-attacks.png)
+
+These runs are non-deterministic by nature (another sandbox run the same day recorded a
+**COMPROMISED** verdict and a timed-out trial that was scored inconclusive, not a pass).
+Run any of them yourself: [docs/PROOFS.md](docs/PROOFS.md#reproduce-any-of-it).
 
 ## Quickstart
 

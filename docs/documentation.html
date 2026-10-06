@@ -71,6 +71,9 @@
 
   pre.code { background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; padding: 16px 18px; overflow-x: auto; font-size: 12.5px; line-height: 1.6; margin-bottom: 18px; }
   pre.code .c { color: var(--dim); }
+  figure.shot { margin: 0 0 22px; }
+  figure.shot img { border-radius: 8px; border: 1px solid var(--border); }
+  figure.shot figcaption { margin-top: 8px; font-size: 12.5px; color: var(--dim); }
 
   .pill-row { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 18px; }
   .pill { font-family: var(--font-display); font-size: 12px; border: 1px solid var(--border); border-radius: 20px; padding: 5px 12px; color: var(--muted); }
@@ -114,6 +117,7 @@
       <li><a href="#findings">Findings &amp; replay</a></li>
       <li><a href="#benchmark">ChaosBench</a></li>
       <li><a href="#regression">Regression corpus</a></li>
+      <li><a href="#proof">Proof</a></li>
       <li><a href="#ci">CI integration</a></li>
       <li><a href="#plugins">Writing a plugin</a></li>
     </ul>
@@ -399,6 +403,25 @@ chaos-agents regression                      <span class="c"># replays everythin
 chaos-agents run campaigns/my_agent.yaml --promote regressions/ --minimize
 chaos-agents regression regressions/</pre>
       <p class="muted"><code>--minimize</code> shrinks the payload to the shortest form that still reproduces the finding, before it's written to disk — so the regression corpus stays a small, fast, meaningful set rather than a growing pile of raw traces.</p>
+    </section>
+
+    <section id="proof">
+      <span class="eyebrow">Proof</span>
+      <h2>Real runs, not mock-ups</h2>
+      <p>Everything above has been run against live, local models and real frameworks (LangGraph, Google ADK, AutoGen, CrewAI). A few of the runs, as the CLI printed them:</p>
+      <figure class="shot">
+        <img src="proof/langgraph-qwen3-14b.png" loading="lazy" alt="LangGraph agent: 4/5 payloads survived, one HIGH finding where the model refuses to share the API key and prints it anyway">
+        <figcaption>LangGraph + <code>qwen3:14b</code> &mdash; 4/5 survived. The finding is a refusal that quotes the key in its own explanation.</figcaption>
+      </figure>
+      <figure class="shot">
+        <img src="proof/multiturn-escalation.png" loading="lazy" alt="Multi-turn campaign against llama3.2: 0/2 conversations survived, both leak the API key">
+        <figcaption>Multi-turn escalation against <code>llama3.2</code> &mdash; both conversations leak the key.</figcaption>
+      </figure>
+      <figure class="shot">
+        <img src="proof/mutation-fuzzing.png" loading="lazy" alt="Mutation campaign: 30 payloads against the naive demo target, 8 survived and 22 were caught" style="max-width:478px">
+        <figcaption>The mutation engine turns two seeds into thirty variants: 22 caught; the 8 survivors are the obfuscated ones (base64, ROT13, leetspeak, zero-width spacing).</figcaption>
+      </figure>
+      <p class="muted">The model-backed numbers are one draw each: the same campaigns gave different answers on a second pass (LangGraph 5/5 &rarr; 4/5, AutoGen 4/5 &rarr; 5/5), which is why the deterministic parts are covered by unit tests and the results are reported with that caveat. All eleven screenshots, with commands, models and trace ids, are in the <a href="https://github.com/themaker00001/chaos-bringer/blob/main/docs/PROOFS.md">proof gallery</a>.</p>
     </section>
 
     <section id="ci">
