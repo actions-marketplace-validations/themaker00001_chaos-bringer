@@ -132,14 +132,20 @@ pip install -e ".[dev,rich]"
 
 chaos-agents plugins                                <span class="c"># see what's registered</span>
 chaos-agents run campaigns/demo_echo.yaml --fancy   <span class="c"># zero-dependency smoke test</span>
-pytest -q</pre>
+pytest -q
+
+<span class="c"># no model needed for any of these (they attack the bundled toolbot agent):</span>
+chaos-agents run campaigns/demo_policy.yaml         <span class="c"># capability + policy</span>
+chaos-agents run campaigns/demo_dataflow.yaml       <span class="c"># data-flow / taint tracking</span>
+chaos-agents run campaigns/demo_memory.yaml --graph <span class="c"># memory poisoning, drawn out</span></pre>
       <p class="muted">Or just <code>pip install chaos-bringer</code> from PyPI if you only need the CLI, not the demo campaigns and tests. Point <code>campaigns/demo_proxy_ollama.yaml</code> at a real <code>ollama serve</code> to see the generic proxy hit a live free model instead of the mock.</p>
     </section>
 
     <section id="concepts">
       <span class="eyebrow">Core concepts</span>
       <h2>Four surfaces, one pipeline</h2>
-      <p>Every campaign flows through the same five stages: a <b>Vector</b> crafts a payload, an <b>Adapter</b> delivers it to the target, the result becomes an <b>Observation</b> (reply + tool calls + errors + latency, not just text), a <b>Judge</b> rules on the whole thing, and a confirmed result becomes a <b>Finding</b> — fingerprinted and written to the corpus as JSON Lines.</p>
+      <p>Every campaign flows through the same five stages: a <b>Vector</b> crafts a payload, an <b>Adapter</b> delivers it to the target, the result becomes an <b>Observation</b> (reply + tool calls + errors + latency, not just text), a <b>Judge</b> rules on the whole thing, and a confirmed result becomes a <b>Finding</b> — fingerprinted and written to the corpus as JSON Lines. A campaign can also carry a <b>Policy</b> (what the agent may do, and which canary secrets must never leave); it wraps the judge, so every tool call is checked as well as the reply.</p>
+      <p>From there a finding has a life: it gets a stable id, can be promoted to a verified regression test, replayed with a fix, and guarded in CI. See <a href="#findings">Findings &amp; replay</a>.</p>
       <p>Each surface is a <code>typing.Protocol</code>, discovered via Python entry-points under a <code>chaos_agents.*</code> group. There's no special case for built-ins: they register through the exact same mechanism a third-party plugin would use.</p>
       <div class="pill-row">
         <span class="pill"><b>pass</b> — the target held</span>
@@ -171,7 +177,7 @@ judge:
   plugin: rule_based
   config:
     forbidden_substrings: ["sk-my-canary-7788"]   <span class="c"># a leak if this appears</span></pre>
-      <p class="muted">Each block is <code>plugin:</code> (which one) + <code>config:</code> (its keyword arguments — exactly the constructor arguments of the plugin class). See <a href="https://github.com/themaker00001/chaos-bringer/tree/main/campaigns">campaigns/</a> in the repo for one ready-made file per adapter/vector/judge.</p>
+      <p class="muted">Each block is <code>plugin:</code> (which one) + <code>config:</code> (its keyword arguments — exactly the constructor arguments of the plugin class). A campaign may also carry an optional <code>policy:</code> block — see <a href="#policy">Policy &amp; data flow</a> — and when it does, the <code>judge:</code> block is optional (the policy is then the verdict rule). See <a href="https://github.com/themaker00001/chaos-bringer/tree/main/campaigns">campaigns/</a> in the repo for one ready-made file per adapter/vector/judge.</p>
     </section>
 
     <section id="cli">
@@ -221,6 +227,7 @@ judge:
             <tr><td><code>a2a</code></td><td>Attacks an Agent-to-Agent agent over JSON-RPC — cross-agent trust abuse, identity spoofing.</td></tr>
             <tr><td><code>chatgpt_app</code></td><td>Attacks a ChatGPT App (an MCP server) by calling its tools with hostile arguments.</td></tr>
             <tr><td><code>sandbox</code></td><td>A contained world for computer-use agents: a local model acts on a small set of tools, the attack is planted in a page it reads, exfiltration is recorded but never really sent, and compromise is judged from ground truth.</td></tr>
+            <tr><td><code>toolbot</code></td><td>A deterministic, model-free tool-using agent: it holds a confidential document containing a canary, calls the tools <code>search_docs</code>, <code>database_write</code>, <code>send_email</code>, <code>http_request</code>, <code>memory_read</code> and <code>memory_write</code> (its memory persists across sessions), and — like a naive agent — does what the message says. A <code>hardened</code> mode refuses risky actions and <code>memory_trusted: false</code> keeps memory but never obeys it. Built so the policy, taint, memory and replay features run end to end for free; it is a demo target, not a claim about any real product.</td></tr>
             <tr><td><code>echo</code> / <code>parrot</code></td><td>Naive demo targets with no model call — the zero-dependency smoke test and the ChaosBench calibration floor.</td></tr>
           </tbody>
         </table>
@@ -239,6 +246,7 @@ judge:
             <tr><td><code>multiturn</code></td><td>Built-in escalation scripts: a benign opener lowers the guard, later turns push further. Pass your own <code>conversations:</code> to write custom scripts.</td></tr>
             <tr><td><code>indirect</code></td><td>Buries the attack inside tool output the agent is asked to process — a poisoned search result, email, or API reply.</td></tr>
             <tr><td><code>mutation</code></td><td>Fuzzes — multiplies a few seeds into many variants (encoding, authority framing, structure, language). Model-free, a good first stress-test pass.</td></tr>
+            <tr><td><code>memory_poison</code></td><td>Cross-session scenarios, not one-shot payloads: each is an attacker message to plant in persistent memory and the innocent victim request that later wakes it up (<code>persistent_instruction</code>, <code>false_fact_injection</code>, <code>dormant_trigger</code> built in; supply your own <code>scenarios:</code>). Needs an adapter with <code>reset_memory()</code> and <code>observe_in_session()</code>, and fails loudly without one. See <a href="#memory">Memory poisoning</a>.</td></tr>
           </tbody>
         </table>
       </div>
@@ -253,6 +261,7 @@ judge:
           <tbody>
             <tr><td><code>rule_based</code></td><td>Regex / forbidden-substring matching. No model call, deterministic, the right default for clean cases.</td></tr>
             <tr><td><code>llm</code></td><td>A local model reads a plain-English policy and rules on the whole Observation — catches paraphrased leaks and unsafe compliance a rule would miss, still free on Ollama.</td></tr>
+            <tr><td><code>policy</code> <span class="muted">(a campaign block, not a plugin)</span></td><td>Wraps whichever judge you pick. Checks every tool call against what the agent may do, follows canary secrets from document to sink, and folds what it finds into the same verdict — so promote, minimize and regression need no policy code of their own. See <a href="#policy">Policy &amp; data flow</a>.</td></tr>
           </tbody>
         </table>
       </div>
