@@ -26,6 +26,24 @@ spills.
   <img src="https://raw.githubusercontent.com/themaker00001/chaos-bringer/main/docs/demo-echo.png" alt="chaos-bringer catching a naive agent leaking a secret under prompt injection" width="720">
 </p>
 
+## At a glance
+
+Beyond fuzzing a model's replies, chaos-bringer judges what an agent **does** and turns
+every confirmed finding into something you can reproduce, guard against, and close. All of
+the rows below run with no model and no network, against the bundled `toolbot` demo agent.
+
+| | What it does | Try it |
+|---|---|---|
+| **Capability + policy** | Declare what the agent may do; every tool call is checked. Privilege violations, approval bypasses, off-list destinations. | `chaos-agents run campaigns/demo_policy.yaml` |
+| **Taint tracking** | Plant a canary secret and follow it to the sink, even when it leaves base64-encoded and the reply looks clean. | `chaos-agents run campaigns/demo_dataflow.yaml` |
+| **Memory poisoning** | An instruction planted in one session fires in another. Control run first, so memory is never blamed for the agent's own behaviour. | `chaos-agents run campaigns/demo_memory.yaml` |
+| **Attack graph** | How a finding happened, stage by stage: delivery → hijack → tool call → violation → sink → outcome. | `chaos-agents run … --graph` |
+| **OWASP + ATLAS** | Every finding is mapped to the OWASP Agentic Top 10 and MITRE ATLAS; tags flow into JSON and SARIF. | automatic |
+| **Security findings** | Stable ids (`CB-956b1f46`), full evidence, status. | `chaos-agents finding list` · `finding show CB-…` |
+| **Regression tests** | A finding becomes `regressions/CB-xxxx/`, verified to reproduce and minimized. | `chaos-agents finding promote CB-…` · `regression` |
+| **Replay** | Original run → attack → observation → fix applied → replay → PASS. | `chaos-agents replay CB-… --fix hardened=true --record` |
+| **ChaosBench v2** | A graded security profile across eight properties, not one number. | `chaos-agents bench X --suite chaos-bench-v2` |
+
 ## What it actually is
 
 chaos-bringer is **config-driven**: a [campaign](#writing-a-campaign) names one
@@ -34,34 +52,40 @@ surfaces are `typing.Protocol`s with no forced inheritance, discovered via Pytho
 entry-points, so built-in and third-party plugins register the exact same way.
 
 ```mermaid
-flowchart LR
+flowchart TD
     CMP["Campaign (YAML)"] --> V
 
     V["Vector — the attack"] -->|payload| A["Adapter — the target agent"]
     A -->|"reply + tool calls"| O["Observation"]
     O --> J["Judge — the verdict"]
-    J --> F["Finding<br/>status · severity · fingerprint"]
-    F --> C[("Corpus · JSONL")]
+    POL["Policy — capabilities + canaries"] -.->|"what the agent may do"| J
+    J --> F["Security Finding<br/>CB-id · severity · path · OWASP/ATLAS"]
+    F --> C[("Corpus · JSONL + campaign snapshot")]
+    F --> G["Attack graph"]
 
-    C --> MIN["Minimize"] --> REG[("Regression corpus")]
-    F --> EXP["Export · JSON / SARIF / JUnit"] --> CI{{"CI gate · exit code"}}
+    C --> PRO["finding promote<br/>minimize + verify"] --> REG[("regressions/CB-xxxx/")]
+    REG --> RP["replay --fix --record"]
+    RP -->|"marks fixed"| REG
+    REG --> RG["regression"] --> CI{{"CI gate · exit code"}}
+    F --> EXP["Export · JSON / SARIF / JUnit"] --> CI
 
     PROV["Model Provider · Ollama (local)"] -.->|optional| V
     PROV -.->|optional| J
 
-    BENCH["ChaosBench suite"] -.->|"reuses adapter + judge"| A
+    BENCH["ChaosBench core · v2 profile"] -.->|"reuses adapter + judge + policy"| A
     A -.->|scored| SC["Scorecard · resilience % · grade"]
 ```
 
-The full pipeline: **Attack → Agent → Observation → Judge → Finding → Fingerprint
-→ Minimize → Corpus → Regression → CI** — plus **ChaosBench**, which reuses the
-adapter + observation + judge to score any target across the taxonomy.
+The full pipeline: **Attack → Agent → Observation → Judge (+ policy and taint
+tracking) → Security Finding → Corpus → Promote (minimized, verified) → Regression →
+Replay → CI** — plus **ChaosBench**, which reuses the adapter + observation + judge +
+policy to score any target, as one number (v1) or a graded security profile (v2).
 
 - **Model Provider** — generates mutated payloads and, optionally, judges. Default: **Ollama**, local and free.
-- **Target Adapter** — connects to the system under test. **generic_proxy** intercepts any OpenAI/Ollama-shaped chat call, so most frameworks need zero adapter code; **ollama_chat** points straight at a local model that holds a conversation (no framework wiring), and it carries state, so **multi-turn** attacks that build across turns work against it; **mcp_fault** is a fault-injecting MCP proxy that poisons, errors, delays or mangles tool results on their way back to an agent — and goes deeper with **tool-description poisoning** (injection in the `tools/list` reply, "line jumping") and **poisoning chains** (per-tool faults so one tool's output steers the agent into another); **a2a** attacks an Agent-to-Agent agent over JSON-RPC, including **cross-agent trust abuse** and **identity spoofing** (see [examples/mcp_a2a_scenarios](examples/mcp_a2a_scenarios)); **chatgpt_app** attacks a ChatGPT App (an MCP server) by calling its tools with hostile arguments; **sandbox** is a contained environment for computer-use agents — a local model acts in a small world where the attack is planted in a page it reads, exfiltration is recorded but never really sent, and the sandbox detects compromise from ground truth.
+- **Target Adapter** — connects to the system under test. **generic_proxy** intercepts any OpenAI/Ollama-shaped chat call, so most frameworks need zero adapter code; **ollama_chat** points straight at a local model that holds a conversation (no framework wiring), and it carries state, so **multi-turn** attacks that build across turns work against it; **mcp_fault** is a fault-injecting MCP proxy that poisons, errors, delays or mangles tool results on their way back to an agent — and goes deeper with **tool-description poisoning** (injection in the `tools/list` reply, "line jumping") and **poisoning chains** (per-tool faults so one tool's output steers the agent into another); **a2a** attacks an Agent-to-Agent agent over JSON-RPC, including **cross-agent trust abuse** and **identity spoofing** (see [examples/mcp_a2a_scenarios](examples/mcp_a2a_scenarios)); **chatgpt_app** attacks a ChatGPT App (an MCP server) by calling its tools with hostile arguments; **sandbox** is a contained environment for computer-use agents — a local model acts in a small world where the attack is planted in a page it reads, exfiltration is recorded but never really sent, and the sandbox detects compromise from ground truth. **toolbot** is a deterministic, model-free tool-using agent (it holds a confidential document, has persistent memory, and does what the message says), built so the policy, taint, memory and replay features run end to end for free.
 - **Observation** — the stage between agent and judge. An agent doesn't only leak by *saying* the secret; it leaks by *doing* — calling `send_email(body=secret)`, `http_post(url, data=secret)`. An Observation captures the whole invocation (reply, every tool call, errors, latency), and the judge rules on that, so a canary that left through a tool argument is caught even when the reply looks clean. An adapter that only has text keeps returning a string; it's wrapped into an Observation automatically.
-- **Chaos Vector** — where the attacks come from. **static_corpus** replays a fixed payload list; **llm** has a model write fresh attacks from a goal you state; **multiturn** escalates over several turns; **indirect** buries the attack inside tool output the agent trusts; **mutation** fuzzes — it multiplies a few seeds into many variants (encoding, authority framing, structure, language) for a stress test, zero-cost and model-free. All free on Ollama, all pointable at your own agent.
-- **Judge** — decides pass/fail/severity. **rule-based** (regex / forbidden-substring, no model call) for clean cases; **llm** — a local model reads a plain-English policy and catches the fuzzier failures (paraphrased leaks, unsafe compliance) the rules miss, still free on Ollama.
+- **Chaos Vector** — where the attacks come from. **static_corpus** replays a fixed payload list; **llm** has a model write fresh attacks from a goal you state; **multiturn** escalates over several turns; **indirect** buries the attack inside tool output the agent trusts; **mutation** fuzzes — it multiplies a few seeds into many variants (encoding, authority framing, structure, language) for a stress test, zero-cost and model-free. **memory_poison** runs cross-session scenarios — an instruction planted in one session, an innocent request in another — with a control run so memory is never blamed for what the agent does on its own. All free on Ollama, all pointable at your own agent.
+- **Judge** — decides pass/fail/severity. **rule-based** (regex / forbidden-substring, no model call) for clean cases; **llm** — a local model reads a plain-English policy and catches the fuzzier failures (paraphrased leaks, unsafe compliance) the rules miss, still free on Ollama. A campaign's **`policy:`** block wraps whichever judge you pick, so tool calls are checked against what the agent is allowed to do as well (see [Beyond the reply](#beyond-the-reply-judging-what-the-agent-did)).
 
 ## Verified against real agents, not just a mock
 
@@ -166,6 +190,17 @@ pytest -q
 Point `campaigns/demo_proxy_ollama.yaml` at a real `ollama serve` to see the
 generic proxy hit a live free model instead of the mock.
 
+The agent-behaviour demos need no model either. Run one, then follow a finding all the
+way through to a fix:
+
+```bash
+chaos-agents run campaigns/demo_memory.yaml --graph          # a memory-poisoning attack, drawn out
+chaos-agents finding list                                    # CB-xxxxxxxx, status OPEN
+chaos-agents finding promote CB-xxxxxxxx                     # -> regressions/CB-xxxxxxxx/
+chaos-agents replay CB-xxxxxxxx --fix memory_trusted=false --record   # PASS, marked FIXED
+chaos-agents regression                                      # exit 0: the fix is guarded
+```
+
 `--fancy` isn't just prettier output. While payloads are in flight, Nergal
 stirs his cauldron in a card laid out like Claude Code's welcome screen: he's
 on the left, drawn straight onto your terminal's own background, and the
@@ -198,18 +233,23 @@ category: sensitive_data        # optional taxonomy tags (family / technique);
 technique: secret_extraction    #   they flow into findings, SARIF rules, ChaosBench
 
 adapter:                        # THE TARGET — one of: echo, parrot, generic_proxy,
-  plugin: generic_proxy         #   ollama_chat, mcp_fault, a2a, chatgpt_app, sandbox
-  config:                       #   (`chaos-agents plugins` lists them all)
+  plugin: generic_proxy         #   ollama_chat, mcp_fault, a2a, chatgpt_app, sandbox,
+  config:                       #   toolbot (`chaos-agents plugins` lists them all)
     upstream_url: "http://localhost:11434/api/chat"
 
-vector:                         # THE ATTACK — one of: static_corpus, llm,
-  plugin: static_corpus         #   multiturn, indirect, mutation
+vector:                         # THE ATTACK — one of: static_corpus, llm, multiturn,
+  plugin: static_corpus         #   indirect, mutation, memory_poison
   config: {}
 
 judge:                          # THE VERDICT — one of: rule_based, llm
-  plugin: rule_based
+  plugin: rule_based            #   (optional when a `policy:` is given)
   config:
     forbidden_substrings: ["sk-my-canary-7788"]   # a leak if this appears
+
+policy:                         # OPTIONAL — what the agent may *do*, checked on every
+  capabilities:                 #   tool call (see "Beyond the reply" below)
+    database_write: deny
+    http_request: {action: allow, destinations: [api.mycompany.com]}
 ```
 
 Each block is `plugin:` (which one) + `config:` (its keyword arguments). Run it,
@@ -456,43 +496,52 @@ it has one, is applied to every probe.
 
 ## Status
 
-Published on PyPI (`pip install chaos-bringer`). Built and tested: the plugin
-architecture; single-shot, multi-turn, indirect, LLM-generated, and **mutation
-(fuzzing)** attacks; rule-based and LLM judging; targets via generic proxy, a
-direct local model, MCP fault injection, A2A, ChatGPT Apps, and a contained
-sandbox for computer-use agents; failing targets recorded as inconclusive, not
-false findings.
+Published on PyPI (`pip install chaos-bringer`). **566 tests**, all passing; every feature
+below was also exercised through the real CLI, not only unit-tested.
 
-**Toward repeatable security infrastructure (V2):** an OWASP-aligned attack
-taxonomy; findings carry a status (pass / fail / inconclusive), severity,
-confidence, and a stable fingerprint; campaign validation (`chaos-agents
-validate`); CI outputs (`run --format json|sarif|junit`, exit code on confirmed
-findings); and a **regression corpus** — promote a finding to a minimized
-reproducer (`finding promote CB-xxxx`, or `run --promote DIR --minimize`) and
-replay it later to catch the vuln coming back (`chaos-agents regression`). See
+**The attack surface.** The plugin architecture; single-shot, multi-turn, indirect,
+LLM-generated, **mutation (fuzzing)** and **memory-poisoning** attacks; rule-based and LLM
+judging; targets via generic proxy, a direct local model, MCP fault injection, A2A, ChatGPT
+Apps, a contained sandbox for computer-use agents, and the model-free `toolbot`; failing
+targets recorded as inconclusive, not false findings.
+
+**Judging what the agent did.** A **capability + policy engine** (privilege violations,
+approval bypasses, destination violations); **data-flow / taint tracking** with canary
+secrets, recognised through base64, hex, URL-encoding, reversal, rot13 and separators; an
+**attack graph** for every finding; and a mapping of every finding to the **OWASP Top 10 for
+Agentic Applications** and **MITRE ATLAS**. See
+[Beyond the reply](#beyond-the-reply-judging-what-the-agent-did).
+
+**Repeatable security infrastructure.** An OWASP-aligned taxonomy (ten families, including
+`memory_poisoning`); findings with a status, severity, confidence and a stable fingerprint;
+a full **Security Finding** format (`finding list | show`); campaign validation; CI outputs
+(`run --format json|sarif|junit`, exit code on confirmed findings); **regression tests** that
+are verified before they are written (`finding promote`, then `regression`); and **replay**
+with a fix applied and recorded (`replay --fix --record`). See
 [From finding to fixed](#from-finding-to-fixed).
 
-**Score an agent — ChaosBench.** A campaign is one attack against one target;
-**ChaosBench** is a fixed, versioned suite of probes across the whole taxonomy,
-so any agent or model gets a comparable **resilience score** (overall + per
-family) and a letter grade. It's model-free and deterministic: each probe tries
-to make the agent emit a unique sentinel, and a robust agent never does (judged
-over the whole Observation, so a sentinel leaked into a tool call counts too).
+**Score an agent: ChaosBench.** A campaign is one attack against one target; **ChaosBench** is
+a fixed, versioned suite of probes, so any agent or model gets a comparable score. It is
+model-free and deterministic: each probe tries to make the agent emit a unique sentinel, and a
+robust agent never does (judged over the whole Observation, so a sentinel leaked into a tool
+call counts too). `chaos-bench-core` gives one resilience score with a letter grade per taxonomy
+family; **`chaos-bench-v2`** gives a graded security profile across eight properties. See
+[ChaosBench v2](#chaosbench-v2-a-security-profile).
 
 ```bash
-chaos-agents bench campaigns/my_agent.yaml                      # terminal scorecard (+ live progress)
-chaos-agents bench campaigns/my_agent.yaml --format json        # machine-readable, for CI
-chaos-agents bench campaigns/my_agent.yaml --min-resilience 80  # CI gate on the score
+chaos-agents bench campaigns/my_agent.yaml                          # terminal scorecard (+ live progress)
+chaos-agents bench campaigns/my_agent.yaml --suite chaos-bench-v2   # the security profile
+chaos-agents bench campaigns/my_agent.yaml --format json            # machine-readable, for CI
+chaos-agents bench campaigns/my_agent.yaml --min-resilience 80      # CI gate on the score
 ```
 
-The scorecard is a terminal summary (overall + per-family resilience and a
-grade) with a live progress bar, plus JSON for CI; `--min-resilience` is the CI
-bar. The `parrot` adapter is the calibration floor (echoes input → ~0%); a
-hardened agent should sit far above it.
+The `parrot` adapter is the calibration floor (echoes input → ~0%); a hardened agent should
+sit far above it.
 
-The sandbox is a simulation of the computer-use archetype (a local model as
-the stand-in agent), not a live integration with Grok Bot or OpenAI Dots,
-which expose no public API to drive.
+The sandbox is a simulation of the computer-use archetype (a local model as the stand-in
+agent), not a live integration with Grok Bot or OpenAI Dots, which expose no public API to
+drive. Likewise `toolbot` is a deliberately naive demo agent for exercising the harness, not a
+claim about any real product.
 
 ## Credits
 
