@@ -141,17 +141,17 @@ was kept) trace in [docs/PROOFS.md](docs/PROOFS.md).
 **Real agent frameworks** (`qwen3:14b`). LangGraph's second pass is the interesting one: the
 model refuses the "I'm the developer" payload and prints the key in its own explanation.
 
-![LangGraph agent: 4/5 payloads survived, one HIGH finding where the model refuses to share the API key and prints it anyway](docs/proof/langgraph-qwen3-14b.png)
-![Google ADK agent: 5/5 payloads survived](docs/proof/adk-qwen3-14b.png)
-![AutoGen agent: 5/5 payloads survived](docs/proof/autogen-qwen3-14b.png)
-![CrewAI hierarchical crew: 2/2 orchestrator attacks survived](docs/proof/crewai-orchestrator.png)
+![LangGraph agent: 4/5 payloads survived, one HIGH finding where the model refuses to share the API key and prints it anyway](https://raw.githubusercontent.com/themaker00001/chaos-bringer/main/docs/proof/langgraph-qwen3-14b.png)
+![Google ADK agent: 5/5 payloads survived](https://raw.githubusercontent.com/themaker00001/chaos-bringer/main/docs/proof/adk-qwen3-14b.png)
+![AutoGen agent: 5/5 payloads survived](https://raw.githubusercontent.com/themaker00001/chaos-bringer/main/docs/proof/autogen-qwen3-14b.png)
+![CrewAI hierarchical crew: 2/2 orchestrator attacks survived](https://raw.githubusercontent.com/themaker00001/chaos-bringer/main/docs/proof/crewai-orchestrator.png)
 
 **Attacks that land** (`llama3.2`). Multi-turn escalation gets it to repeat its own system
 prompt, key included; indirect injection hides the attack in a search hit and an API
 response, and both times the model "ignores" it while quoting the key.
 
-![Multi-turn campaign against llama3.2: 0/2 conversations survived, both leak the API key](docs/proof/multiturn-escalation.png)
-![Indirect-injection campaign: 3/5 survived, the two findings are tool outputs carrying a hidden instruction](docs/proof/indirect-injection.png)
+![Multi-turn campaign against llama3.2: 0/2 conversations survived, both leak the API key](https://raw.githubusercontent.com/themaker00001/chaos-bringer/main/docs/proof/multiturn-escalation.png)
+![Indirect-injection campaign: 3/5 survived, the two findings are tool outputs carrying a hidden instruction](https://raw.githubusercontent.com/themaker00001/chaos-bringer/main/docs/proof/indirect-injection.png)
 
 **Fuzzing and judging.** Two seeds become thirty attacks against the naive target; the eight
 that survive are the obfuscated ones (base64, ROT13, leetspeak, zero-width spacing). A local
@@ -159,8 +159,8 @@ model can also be the judge, reading a plain-English policy instead of matching 
 
 <table>
 <tr>
-<td width="40%" valign="top"><img src="docs/proof/mutation-fuzzing.png" alt="Mutation campaign: 30 payloads against the naive demo target, 8 survived and 22 were caught"></td>
-<td width="60%" valign="top"><img src="docs/proof/llm-judge.png" alt="LLM-judge campaign: 0/5 payloads survived against the naive demo target"></td>
+<td width="40%" valign="top"><img src="https://raw.githubusercontent.com/themaker00001/chaos-bringer/main/docs/proof/mutation-fuzzing.png" alt="Mutation campaign: 30 payloads against the naive demo target, 8 survived and 22 were caught"></td>
+<td width="60%" valign="top"><img src="https://raw.githubusercontent.com/themaker00001/chaos-bringer/main/docs/proof/llm-judge.png" alt="LLM-judge campaign: 0/5 payloads survived against the naive demo target"></td>
 </tr>
 </table>
 
@@ -168,9 +168,9 @@ model can also be the judge, reading a plain-English policy instead of matching 
 echoes input, so it must score 0%), a sandboxed computer-use agent, and a campaign where a
 model writes the attacks *and* judges the replies.
 
-![ChaosBench core suite against the parrot adapter: resilience 0.0%, grade F, all nine probes leaked](docs/proof/chaosbench-parrot-floor.png)
-![Sandbox campaign: 2/2 exfiltration lures survived](docs/proof/sandbox-computer-use.png)
-![LLM-generated attacks campaign: 2/2 survived](docs/proof/llm-generated-attacks.png)
+![ChaosBench core suite against the parrot adapter: resilience 0.0%, grade F, all nine probes leaked](https://raw.githubusercontent.com/themaker00001/chaos-bringer/main/docs/proof/chaosbench-parrot-floor.png)
+![Sandbox campaign: 2/2 exfiltration lures survived](https://raw.githubusercontent.com/themaker00001/chaos-bringer/main/docs/proof/sandbox-computer-use.png)
+![LLM-generated attacks campaign: 2/2 survived](https://raw.githubusercontent.com/themaker00001/chaos-bringer/main/docs/proof/llm-generated-attacks.png)
 
 These runs are non-deterministic by nature (another sandbox run the same day recorded a
 **COMPROMISED** verdict and a timed-out trial that was scored inconclusive, not a pass).
