@@ -214,13 +214,15 @@ def record_fix(finding_id: str, regressions_dir: str | Path, fix: dict[str, Any]
 
 # ---- the story ---------------------------------------------------------------------
 
-def _calls(calls: list[dict]) -> list[str]:
+def _calls(calls: list[dict], room: int = 100, cap: int | None = None) -> list[str]:
     out = []
     for i, c in enumerate(calls, 1):
         args = c.get("arguments", "")
         if isinstance(args, dict):
             args = "  ".join(f"{k}={_short(v)}" for k, v in args.items())
-        out.append(f"{i}. {c.get('name', '?')}  {_short(args, 100)}")
+        name = c.get("name", "?")
+        used = len(f"  {i}. {name}  ")                  # the line's own prefix, inside the gutter
+        out.append(f"{i}. {name}  {_short(args, min(room, cap - used) if cap else room)}")
     return out
 
 
@@ -238,30 +240,41 @@ def _config(cfg: dict) -> str:
     return "  ".join(f"{k}={_val(v)}" for k, v in cfg.items()) or "(defaults)"
 
 
-def render(rp: Replay) -> str:
+def render(rp: Replay, width: int | None = None) -> str:
+    """The replay as a numbered story. With a `width` (a terminal's) every
+    line is kept within it by shortening the long fields, as before they were
+    capped at fixed sizes."""
+    cap = max(width - 18, 24) if width else None       # room left of the "[n] NAME          " gutter
+
+    def short(value: Any, room: int, used: int = 0) -> str:
+        """`value` cut to `room` characters, or to what is left of the terminal
+        after the `used` characters of prefix this item already starts with."""
+        return _short(value, max(min(room, cap - used), 12) if cap else room)
+
     steps: list[tuple[str, list[str]]] = []
     o = rp.original
+    sev = f"{o['severity'].upper()}  "
     steps.append(("ORIGINAL RUN", [f"{rp.run.get('campaign', '?')} · run {rp.run.get('run_id', '?')}",
-                                   f"{o['severity'].upper()}  {_short(o['reason'], 150)}"]))
+                                   f"{sev}{short(o['reason'], 150, len(sev))}"]))
     atk = _attack_of(rp.entry)
-    attack_lines = ([f"planted:  {_short(atk['payload'], 110)}", f"trigger:  {_short(atk['trigger'], 110)}"]
-                    if "trigger" in atk else [_short(atk["payload"], 140)])
+    attack_lines = ([f"planted:  {short(atk['payload'], 110, 10)}", f"trigger:  {short(atk['trigger'], 110, 10)}"]
+                    if "trigger" in atk else [short(atk["payload"], 140)])
     steps.append(("ATTACK", attack_lines))
     steps.append(("AGENT", [f"{rp.entry['adapter']['plugin']}  {_config(rp.before.config)}"]))
 
     def observed(a: Attempt) -> list[str]:
-        lines = [f"reply: {_short(a.response, 120)}" if a.response else "reply: (none)"]
-        calls = _calls(a.tool_calls)
+        lines = [f"reply: {short(a.response, 120, 7)}" if a.response else "reply: (none)"]
+        calls = _calls(a.tool_calls, 100, cap)
         return lines + (["tool calls:"] + [f"  {c}" for c in calls] if calls else ["tool calls: none"])
 
     steps.append(("OBSERVATION", observed(rp.before)))
     verdict = {FAIL: "REPRODUCED", PASS: "NOT REPRODUCED", INCONCLUSIVE: "INCONCLUSIVE"}[rp.before.status]
-    steps.append(("FINDING", [f"{verdict}  {_short(rp.before.reason, 140)}"]))
+    steps.append(("FINDING", [f"{verdict}  {short(rp.before.reason, 140, len(verdict) + 2)}"]))
     if rp.after is not None:
         steps.append(("FIX APPLIED", [_config(rp.overrides)]))
         steps.append(("REPLAY", observed(rp.after)))
     label = {PASS: "PASS", VULNERABLE: "VULNERABLE", INCONCLUSIVE: "INCONCLUSIVE"}[rp.result]
-    steps.append(("RESULT", [f"{label}  {rp.summary}"]))
+    steps.append(("RESULT", [f"{label}  {short(rp.summary, 150, len(label) + 2)}"]))
 
     lines = [f"REPLAY  {rp.id}", ""]
     for i, (name, body) in enumerate(steps, 1):

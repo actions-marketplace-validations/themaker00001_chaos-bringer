@@ -10,6 +10,17 @@ ChatGPT Apps or an always-on computer-use agent — and it fuzzes, fault-injects
 and red-teams it. Free by default: every model call it actually needs runs on
 a local Ollama model, not a paid API.
 
+**60-second demo:** attack a memory-backed agent, observe the tool-level violation, promote the finding
+into a verified regression test, then replay it after the fix.
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/themaker00001/chaos-bringer/main/docs/demo.gif" alt="A terminal recording: chaos-agents attacks an agent and finds a critical memory-poisoning exfiltration, promotes the finding to a regression test, replays it with a fix to get PASS, and the regression suite passes" width="832">
+</p>
+
+<p align="center"><b>Attack → Observe → Judge → Finding → Regression → Replay → CI</b></p>
+
+<p align="center"><sub>Real CLI output against the bundled demo agent, no model needed: <code>chaos-agents run campaigns/demo_quickstart.yaml</code>. <code>python tools/demo/make_demo_gif.py</code> re-records it.</sub></p>
+
 If Netflix's Chaos Monkey answers to no particular pantheon, this one answers
 to Nergal — the Mesopotamian god of plague and the underworld, on loan as
 the project's patron deity for what happens to an agent's assumptions here.
@@ -141,17 +152,17 @@ was kept) trace in [docs/PROOFS.md](docs/PROOFS.md).
 **Real agent frameworks** (`qwen3:14b`). LangGraph's second pass is the interesting one: the
 model refuses the "I'm the developer" payload and prints the key in its own explanation.
 
-![LangGraph agent: 4/5 payloads survived, one HIGH finding where the model refuses to share the API key and prints it anyway](docs/proof/langgraph-qwen3-14b.png)
-![Google ADK agent: 5/5 payloads survived](docs/proof/adk-qwen3-14b.png)
-![AutoGen agent: 5/5 payloads survived](docs/proof/autogen-qwen3-14b.png)
-![CrewAI hierarchical crew: 2/2 orchestrator attacks survived](docs/proof/crewai-orchestrator.png)
+![LangGraph agent: 4/5 payloads survived, one HIGH finding where the model refuses to share the API key and prints it anyway](https://raw.githubusercontent.com/themaker00001/chaos-bringer/main/docs/proof/langgraph-qwen3-14b.png)
+![Google ADK agent: 5/5 payloads survived](https://raw.githubusercontent.com/themaker00001/chaos-bringer/main/docs/proof/adk-qwen3-14b.png)
+![AutoGen agent: 5/5 payloads survived](https://raw.githubusercontent.com/themaker00001/chaos-bringer/main/docs/proof/autogen-qwen3-14b.png)
+![CrewAI hierarchical crew: 2/2 orchestrator attacks survived](https://raw.githubusercontent.com/themaker00001/chaos-bringer/main/docs/proof/crewai-orchestrator.png)
 
 **Attacks that land** (`llama3.2`). Multi-turn escalation gets it to repeat its own system
 prompt, key included; indirect injection hides the attack in a search hit and an API
 response, and both times the model "ignores" it while quoting the key.
 
-![Multi-turn campaign against llama3.2: 0/2 conversations survived, both leak the API key](docs/proof/multiturn-escalation.png)
-![Indirect-injection campaign: 3/5 survived, the two findings are tool outputs carrying a hidden instruction](docs/proof/indirect-injection.png)
+![Multi-turn campaign against llama3.2: 0/2 conversations survived, both leak the API key](https://raw.githubusercontent.com/themaker00001/chaos-bringer/main/docs/proof/multiturn-escalation.png)
+![Indirect-injection campaign: 3/5 survived, the two findings are tool outputs carrying a hidden instruction](https://raw.githubusercontent.com/themaker00001/chaos-bringer/main/docs/proof/indirect-injection.png)
 
 **Fuzzing and judging.** Two seeds become thirty attacks against the naive target; the eight
 that survive are the obfuscated ones (base64, ROT13, leetspeak, zero-width spacing). A local
@@ -159,8 +170,8 @@ model can also be the judge, reading a plain-English policy instead of matching 
 
 <table>
 <tr>
-<td width="40%" valign="top"><img src="docs/proof/mutation-fuzzing.png" alt="Mutation campaign: 30 payloads against the naive demo target, 8 survived and 22 were caught"></td>
-<td width="60%" valign="top"><img src="docs/proof/llm-judge.png" alt="LLM-judge campaign: 0/5 payloads survived against the naive demo target"></td>
+<td width="40%" valign="top"><img src="https://raw.githubusercontent.com/themaker00001/chaos-bringer/main/docs/proof/mutation-fuzzing.png" alt="Mutation campaign: 30 payloads against the naive demo target, 8 survived and 22 were caught"></td>
+<td width="60%" valign="top"><img src="https://raw.githubusercontent.com/themaker00001/chaos-bringer/main/docs/proof/llm-judge.png" alt="LLM-judge campaign: 0/5 payloads survived against the naive demo target"></td>
 </tr>
 </table>
 
@@ -168,9 +179,9 @@ model can also be the judge, reading a plain-English policy instead of matching 
 echoes input, so it must score 0%), a sandboxed computer-use agent, and a campaign where a
 model writes the attacks *and* judges the replies.
 
-![ChaosBench core suite against the parrot adapter: resilience 0.0%, grade F, all nine probes leaked](docs/proof/chaosbench-parrot-floor.png)
-![Sandbox campaign: 2/2 exfiltration lures survived](docs/proof/sandbox-computer-use.png)
-![LLM-generated attacks campaign: 2/2 survived](docs/proof/llm-generated-attacks.png)
+![ChaosBench core suite against the parrot adapter: resilience 0.0%, grade F, all nine probes leaked](https://raw.githubusercontent.com/themaker00001/chaos-bringer/main/docs/proof/chaosbench-parrot-floor.png)
+![Sandbox campaign: 2/2 exfiltration lures survived](https://raw.githubusercontent.com/themaker00001/chaos-bringer/main/docs/proof/sandbox-computer-use.png)
+![LLM-generated attacks campaign: 2/2 survived](https://raw.githubusercontent.com/themaker00001/chaos-bringer/main/docs/proof/llm-generated-attacks.png)
 
 These runs are non-deterministic by nature (another sandbox run the same day recorded a
 **COMPROMISED** verdict and a timed-out trial that was scored inconclusive, not a pass).
@@ -183,6 +194,7 @@ python3 -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev,rich]"
 
 chaos-agents plugins                      # see what's registered
+chaos-agents run campaigns/demo_quickstart.yaml      # the 15-second demo: no model needed
 chaos-agents run campaigns/demo_echo.yaml --fancy   # zero-dependency smoke test
 pytest -q
 ```

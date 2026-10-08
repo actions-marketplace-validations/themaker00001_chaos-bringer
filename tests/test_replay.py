@@ -284,3 +284,18 @@ def test_cli_finding_list_json_carries_the_regression_state(project, capsys):
     main(["finding", "list", "--json"])
     item = next(i for i in json.loads(capsys.readouterr().out) if i["id"] == fid)
     assert item["status"] == "fixed" and item["reproducible"] is True and item["regression"] == f"regressions/{fid}"
+
+
+def test_the_readme_demo_story_still_holds_end_to_end(project, capsys):
+    """tools/demo/make_demo_gif.py records exactly this sequence, so if it ever stops
+    working the GIF can't be rebuilt -- and the README would be advertising a demo that doesn't."""
+    campaign = str(ROOT / "campaigns/demo_quickstart.yaml")
+    assert main(["run", campaign]) == 1                                  # the agent is poisoned
+    out = capsys.readouterr().out
+    assert "MEMORY POISONING" in out and "OWASP ASI06" in out
+    fid = next(w for w in out.split() if w.startswith("CB-"))
+    assert main(["finding", "promote", fid]) == 0                        # a verified regression test
+    assert main(["replay", fid, "--fix", "memory_trusted=false", "--record"]) == 0   # the fix closes it
+    assert "PASS" in capsys.readouterr().out
+    assert main(["regression"]) == 0                                     # ...and it stays guarded
+    assert "1/1 reproducers no longer fire" in capsys.readouterr().out

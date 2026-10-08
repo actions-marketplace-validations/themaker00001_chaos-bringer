@@ -274,6 +274,25 @@
   </div>
 </header>
 
+<section id="demo">
+  <div class="wrap">
+    <div class="section-head">
+      <p class="eyebrow">See it in 15 seconds</p>
+      <h2>Attack → Observe → Judge → Finding → Regression → Replay</h2>
+      <p class="lede">
+        The real CLI, not a mock-up — recorded against the bundled demo agent, so it needs no
+        model and no network. An attacker plants a note in an agent's memory; another user's
+        innocent request fires it; a canary secret leaves through a tool call. The finding
+        becomes a verified regression test, and replaying it with a fix flips it to PASS.
+      </p>
+    </div>
+    <figure class="shot">
+      <img src="demo.gif" width="832" alt="A terminal recording: chaos-agents attacks an agent and finds a critical memory-poisoning exfiltration, promotes the finding to a regression test, replays it with a fix to get PASS, and the regression suite passes">
+      <figcaption>chaos-agents run campaigns/demo_quickstart.yaml — then finding promote, replay --fix, and regression. Re-record it with tools/demo/make_demo_gif.py.</figcaption>
+    </figure>
+  </div>
+</section>
+
 <section class="band" id="what">
   <div class="wrap">
     <div class="section-head">

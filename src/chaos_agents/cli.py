@@ -79,7 +79,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
             print(f"invalid campaign: {exc}", file=sys.stderr)
             return 2
         if fmt == "terminal":
-            print(report.render(campaign.name, records))
+            print(report.render(campaign.name, records, width=report.terminal_width()))
 
     if args.graph and fmt == "terminal":
         _print_graphs(records, args.graph)
@@ -267,7 +267,7 @@ def _cmd_replay(args: argparse.Namespace) -> int:
         rp = replay_mod.replay(found, args.regressions_dir, fix=fix, campaign=campaign, record=args.record)
     except (runstore.FindingNotFound, runstore.AmbiguousFinding, CampaignError, replay_mod.ReplayError) as exc:
         return _finding_args_error(exc)
-    print(json.dumps(rp.to_dict(), indent=2) if args.json else replay_mod.render(rp))
+    print(json.dumps(rp.to_dict(), indent=2) if args.json else replay_mod.render(rp, width=report.terminal_width()))
     return 0 if rp.result == PASS else 3 if rp.result == INCONCLUSIVE else 1
 
 
