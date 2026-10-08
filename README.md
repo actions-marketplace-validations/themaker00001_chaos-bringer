@@ -10,6 +10,19 @@ ChatGPT Apps or an always-on computer-use agent — and it fuzzes, fault-injects
 and red-teams it. Free by default: every model call it actually needs runs on
 a local Ollama model, not a paid API.
 
+<p align="center">
+  <img src="https://raw.githubusercontent.com/themaker00001/chaos-bringer/main/docs/demo.gif" alt="A terminal recording: chaos-agents attacks an agent and finds a critical memory-poisoning exfiltration, promotes the finding to a regression test, replays it with a fix to get PASS, and the regression suite passes" width="832">
+</p>
+
+<p align="center"><b>Attack → Observe → Judge → Finding → Regression → Replay → CI</b></p>
+
+That is the real CLI, not a mock-up, recorded against the bundled demo agent (no model, no
+network): an attacker plants a note in an agent's memory, a different user's innocent request
+fires it and a canary secret leaves through a tool call, the finding becomes a verified
+regression test, and replaying it with a fix flips it to PASS. Run it yourself with
+`chaos-agents run campaigns/demo_quickstart.yaml`; `python tools/demo/make_demo_gif.py`
+re-records the GIF from the live output.
+
 If Netflix's Chaos Monkey answers to no particular pantheon, this one answers
 to Nergal — the Mesopotamian god of plague and the underworld, on loan as
 the project's patron deity for what happens to an agent's assumptions here.
@@ -183,6 +196,7 @@ python3 -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev,rich]"
 
 chaos-agents plugins                      # see what's registered
+chaos-agents run campaigns/demo_quickstart.yaml      # the 15-second demo: no model needed
 chaos-agents run campaigns/demo_echo.yaml --fancy   # zero-dependency smoke test
 pytest -q
 ```

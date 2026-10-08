@@ -131,6 +131,7 @@
 pip install -e ".[dev,rich]"
 
 chaos-agents plugins                                <span class="c"># see what's registered</span>
+chaos-agents run campaigns/demo_quickstart.yaml      <span class="c"># the 15-second demo, no model needed</span>
 chaos-agents run campaigns/demo_echo.yaml --fancy   <span class="c"># zero-dependency smoke test</span>
 pytest -q
 

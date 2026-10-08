@@ -225,3 +225,20 @@ def test_cli_unknown_and_ambiguous_ids_exit_2(tmp_path, capsys):
 def test_cli_finding_list_on_an_empty_directory(tmp_path, capsys):
     assert main(["finding", "list", "--runs-dir", str(tmp_path)]) == 0
     assert "no findings" in capsys.readouterr().out
+
+
+# ---- the report names each finding, so the next command can use it --------------
+
+def test_the_run_report_prints_each_findings_id_and_it_is_the_one_finding_list_uses(tmp_path, capsys):
+    main(["run", "campaigns/demo_policy.yaml", "--runs-dir", str(tmp_path)])
+    report_text = capsys.readouterr().out
+    printed = {line.split("id:")[1].strip() for line in report_text.splitlines() if line.strip().startswith("id:")}
+    assert len(printed) == 3 and all(i.startswith("CB-") and len(i) == 11 for i in printed)
+    assert printed == {f.id for f in runstore.list_findings(tmp_path)}
+
+
+def test_a_passing_trial_has_no_id_line(tmp_path):
+    from chaos_agents import report
+    campaign, _, records = run(tmp_path)
+    text = report.render(campaign.name, records)
+    assert text.count("    id:       CB-") == sum(1 for r in records if not r.passed)
