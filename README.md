@@ -10,18 +10,16 @@ ChatGPT Apps or an always-on computer-use agent — and it fuzzes, fault-injects
 and red-teams it. Free by default: every model call it actually needs runs on
 a local Ollama model, not a paid API.
 
+**60-second demo:** attack a memory-backed agent, observe the tool-level violation, promote the finding
+into a verified regression test, then replay it after the fix.
+
 <p align="center">
   <img src="https://raw.githubusercontent.com/themaker00001/chaos-bringer/main/docs/demo.gif" alt="A terminal recording: chaos-agents attacks an agent and finds a critical memory-poisoning exfiltration, promotes the finding to a regression test, replays it with a fix to get PASS, and the regression suite passes" width="832">
 </p>
 
 <p align="center"><b>Attack → Observe → Judge → Finding → Regression → Replay → CI</b></p>
 
-That is the real CLI, not a mock-up, recorded against the bundled demo agent (no model, no
-network): an attacker plants a note in an agent's memory, a different user's innocent request
-fires it and a canary secret leaves through a tool call, the finding becomes a verified
-regression test, and replaying it with a fix flips it to PASS. Run it yourself with
-`chaos-agents run campaigns/demo_quickstart.yaml`; `python tools/demo/make_demo_gif.py`
-re-records the GIF from the live output.
+<p align="center"><sub>Real CLI output against the bundled demo agent, no model needed: <code>chaos-agents run campaigns/demo_quickstart.yaml</code>. <code>python tools/demo/make_demo_gif.py</code> re-records it.</sub></p>
 
 If Netflix's Chaos Monkey answers to no particular pantheon, this one answers
 to Nergal — the Mesopotamian god of plague and the underworld, on loan as
