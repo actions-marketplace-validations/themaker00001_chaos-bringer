@@ -95,7 +95,7 @@ policy to score any target, as one number (v1) or a graded security profile (v2)
 - **Model Provider** — generates mutated payloads and, optionally, judges. Default: **Ollama**, local and free.
 - **Target Adapter** — connects to the system under test. **generic_proxy** intercepts any OpenAI/Ollama-shaped chat call, so most frameworks need zero adapter code; **ollama_chat** points straight at a local model that holds a conversation (no framework wiring), and it carries state, so **multi-turn** attacks that build across turns work against it; **mcp_fault** is a fault-injecting MCP proxy that poisons, errors, delays or mangles tool results on their way back to an agent — and goes deeper with **tool-description poisoning** (injection in the `tools/list` reply, "line jumping") and **poisoning chains** (per-tool faults so one tool's output steers the agent into another); **a2a** attacks an Agent-to-Agent agent over JSON-RPC, including **cross-agent trust abuse** and **identity spoofing** (see [examples/mcp_a2a_scenarios](examples/mcp_a2a_scenarios)); **chatgpt_app** attacks a ChatGPT App (an MCP server) by calling its tools with hostile arguments; **sandbox** is a contained environment for computer-use agents — a local model acts in a small world where the attack is planted in a page it reads, exfiltration is recorded but never really sent, and the sandbox detects compromise from ground truth. **toolbot** is a deterministic, model-free tool-using agent (it holds a confidential document, has persistent memory, and does what the message says), built so the policy, taint, memory and replay features run end to end for free.
 - **Observation** — the stage between agent and judge. An agent doesn't only leak by *saying* the secret; it leaks by *doing* — calling `send_email(body=secret)`, `http_post(url, data=secret)`. An Observation captures the whole invocation (reply, every tool call, errors, latency), and the judge rules on that, so a canary that left through a tool argument is caught even when the reply looks clean. An adapter that only has text keeps returning a string; it's wrapped into an Observation automatically.
-- **Chaos Vector** — where the attacks come from. **static_corpus** replays a fixed payload list; **llm** has a model write fresh attacks from a goal you state; **multiturn** escalates over several turns; **indirect** buries the attack inside tool output the agent trusts; **mutation** fuzzes — it multiplies a few seeds into many variants (encoding, authority framing, structure, language) for a stress test, zero-cost and model-free. **memory_poison** runs cross-session scenarios — an instruction planted in one session, an innocent request in another — with a control run so memory is never blamed for what the agent does on its own. All free on Ollama, all pointable at your own agent.
+- **Chaos Vector** — where the attacks come from. **static_corpus** replays a fixed payload list; **llm** has a model write fresh attacks from a goal you state; **multiturn** escalates over several turns; **indirect** buries the attack inside tool output the agent trusts; **mutation** fuzzes — it multiplies a few seeds into many variants (encoding, authority framing, structure, language) for a stress test, zero-cost and model-free. **memory_poison** runs cross-session scenarios — an instruction planted in one session, an innocent request in another — with a control run so memory is never blamed for what the agent does on its own; **adaptive_memory** runs that same kind of scenario but chooses its next attempt from what the last one revealed, over a declared grid of techniques, instead of a fixed list worked end to end. All free on Ollama, all pointable at your own agent.
 - **Judge** — decides pass/fail/severity. **rule-based** (regex / forbidden-substring, no model call) for clean cases; **llm** — a local model reads a plain-English policy and catches the fuzzier failures (paraphrased leaks, unsafe compliance) the rules miss, still free on Ollama. A campaign's **`policy:`** block wraps whichever judge you pick, so tool calls are checked against what the agent is allowed to do as well (see [Beyond the reply](#beyond-the-reply-judging-what-the-agent-did)).
 
 ## Verified against real agents, not just a mock
@@ -250,7 +250,7 @@ adapter:                        # THE TARGET — one of: echo, parrot, generic_p
     upstream_url: "http://localhost:11434/api/chat"
 
 vector:                         # THE ATTACK — one of: static_corpus, llm, multiturn,
-  plugin: static_corpus         #   indirect, mutation, memory_poison
+  plugin: static_corpus         #   indirect, mutation, memory_poison, adaptive_memory
   config: {}
 
 judge:                          # THE VERDICT — one of: rule_based, llm
@@ -418,6 +418,41 @@ vector:
 The target needs `reset_memory()` and `observe_in_session(payload, session)`. A
 memory vector pointed at an adapter without them fails loudly, rather than passing
 by testing nothing.
+
+### The adaptive attack engine
+
+Every vector above decides its whole payload list before the first attack runs.
+This one doesn't: it runs one candidate, sees whether it reproduced, and uses that
+to choose what to try next -- the way a tester would ask "that destination got
+through, is there a sibling that does too?" instead of working a fixed list end to
+end regardless of what happens.
+
+It is **not** a model and doesn't invent attacks. The search space is a *declared*
+grid: a few memory-poisoning techniques (**arms**), each a poison/trigger template
+with named slots and an explicit list of values per slot. "Adaptive" is the order
+and emphasis of trying that grid, not the grid itself, which never grows past what
+the campaign file declares. A hard `budget` caps how many scenarios it will ever
+run, so a typo can't turn into unbounded hammering of whatever adapter is
+configured.
+
+```yaml
+vector:
+  plugin: adaptive_memory
+  config:
+    budget: 6                  # scenarios to run before stopping, win or lose
+    seed: 0                    # for a reproducible search order
+    # arms: omitted -> the built-in grid (persistent_instruction, false_fact_injection, dormant_trigger)
+```
+
+A FAIL on an arm raises its odds of being picked again (look for more like it); a
+PASS lowers them (that neighbourhood is held, spend the budget elsewhere); an
+INCONCLUSIVE spends budget without moving the odds, so a flaky target can't stall
+the search. It stops at the budget or once the declared grid is exhausted. Every
+record carries the exact candidate (technique + slot values) that produced it, and
+the run also writes `adaptive_search.json`: which arms were tried, how many
+findings each produced, and the full attempt-by-attempt history. Findings from it
+are ordinary Security Findings -- `finding promote`, `replay`, and `regression`
+all work on them unchanged. Try it: `chaos-agents run campaigns/demo_adaptive.yaml`.
 
 ### Attack graph and standards
 

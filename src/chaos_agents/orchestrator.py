@@ -9,10 +9,11 @@ one trial, a finding if any reply along the way breaks the policy.
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from typing import Callable
 
-from chaos_agents import findings, guard, memory, observation, registry, runstore, standards, taxonomy
+from chaos_agents import adaptive, findings, guard, memory, observation, registry, runstore, standards, taxonomy
 from chaos_agents.campaign import Campaign, CampaignError
 from chaos_agents.corpus import Corpus, Record
 from chaos_agents.interfaces import FAIL, INCONCLUSIVE
@@ -140,6 +141,33 @@ def _is_memory(vector) -> bool:
     return callable(getattr(vector, "scenarios", None))
 
 
+def _is_adaptive(vector) -> bool:
+    return callable(getattr(vector, "propose", None)) and callable(getattr(vector, "feedback", None))
+
+
+def _run_adaptive(vector, adapter, judge, ctx, on_step, on_result, sink) -> None:
+    """Generate -> run -> analyze -> pick the next path (see `chaos_agents.adaptive`).
+    Unlike every other vector, this one sees the outcome of each attempt before
+    deciding the next one, so the loop lives here instead of just iterating a
+    precomputed list."""
+    while True:
+        candidate = vector.propose()
+        if candidate is None:
+            break
+        if on_step:
+            on_step(candidate.poison)
+        try:
+            outcome = memory.run_scenario(adapter, judge, candidate.scenario())
+        except Exception as exc:  # noqa: BLE001 -- a target error is inconclusive; the search keeps going
+            sink(_error_record(candidate.poison, exc, ctx))
+            vector.feedback(INCONCLUSIVE)
+            continue
+        record = _memory_record(outcome, ctx)
+        record.details = {**record.details, "candidate": candidate.to_dict()}
+        sink(record)
+        vector.feedback(outcome.status)
+
+
 def _is_multiturn(vector, adapter) -> bool:
     return callable(getattr(vector, "conversations", None)) and callable(getattr(adapter, "converse", None))
 
@@ -214,16 +242,18 @@ def run_campaign(
         if on_result:
             on_result(record)
 
-    if _is_memory(vector):
-        # fail loudly: running just the poison against a target with no memory
-        # would "pass" every time and prove nothing
+    # fail loudly: running a memory-poisoning vector (adaptive or not) against a
+    # target with no memory would "pass" every time and prove nothing
+    if _is_adaptive(vector) or _is_memory(vector):
         if not memory.supports_memory(adapter):
             raise CampaignError(
                 f"vector {campaign.vector.plugin!r} tests memory poisoning, but adapter "
                 f"{campaign.adapter.plugin!r} has no persistent memory "
                 f"(it needs reset_memory() and observe_in_session(payload, session))")
-        run = _run_memory
+        run = _run_adaptive if _is_adaptive(vector) else _run_memory
     else:
         run = _run_multiturn if _is_multiturn(vector, adapter) else _run_single
     run(vector, adapter, judge, ctx, on_step, on_result, sink)
+    if hasattr(vector, "summary"):   # the adaptive search's own report: what it tried and why
+        (corpus.run_dir / "adaptive_search.json").write_text(json.dumps(vector.summary(), indent=2))
     return records

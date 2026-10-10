@@ -248,6 +248,7 @@ judge:
             <tr><td><code>indirect</code></td><td>Buries the attack inside tool output the agent is asked to process — a poisoned search result, email, or API reply.</td></tr>
             <tr><td><code>mutation</code></td><td>Fuzzes — multiplies a few seeds into many variants (encoding, authority framing, structure, language). Model-free, a good first stress-test pass.</td></tr>
             <tr><td><code>memory_poison</code></td><td>Cross-session scenarios, not one-shot payloads: each is an attacker message to plant in persistent memory and the innocent victim request that later wakes it up (<code>persistent_instruction</code>, <code>false_fact_injection</code>, <code>dormant_trigger</code> built in; supply your own <code>scenarios:</code>). Needs an adapter with <code>reset_memory()</code> and <code>observe_in_session()</code>, and fails loudly without one. See <a href="#memory">Memory poisoning</a>.</td></tr>
+            <tr><td><code>adaptive_memory</code></td><td>The same cross-session attack, but it picks its next candidate from what the last one revealed instead of working a fixed list: a FAIL raises a technique's odds, a PASS lowers them, over a declared grid of techniques and slot values -- never free-form, always capped by a <code>budget</code>. Writes <code>adaptive_search.json</code> with the full attempt history. See <a href="https://github.com/themaker00001/chaos-bringer#the-adaptive-attack-engine">the adaptive attack engine</a> in the README.</td></tr>
           </tbody>
         </table>
       </div>

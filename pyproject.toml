@@ -66,6 +66,7 @@ multiturn = "chaos_agents.vectors.multiturn:MultiTurnVector"
 indirect = "chaos_agents.vectors.indirect:IndirectVector"
 mutation = "chaos_agents.vectors.mutation:MutationVector"
 memory_poison = "chaos_agents.vectors.memory_poison:MemoryPoisonVector"
+adaptive_memory = "chaos_agents.adaptive:AdaptiveMemoryVector"
 
 [project.entry-points."chaos_agents.judges"]
 rule_based = "chaos_agents.judges.rule_based:RuleBasedJudge"
