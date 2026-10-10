@@ -17,6 +17,23 @@ python tools/fortress/fuzz.py --n 500000                 # random messages, prop
 python tools/fortress/adaptive_vs_blind.py               # the adaptive engine against real seeded defects
 ```
 
+## The range: attack it by hand
+
+```
+python tools/fortress/range.py --open
+```
+
+A local console (127.0.0.1 only, per-launch token, strict CSP, attack text shown as data) to talk to
+the agent, watch each layer decide, switch layers off, and fire the siege families and the full
+ablation matrix against whatever is configured. Every turn is judged by the same policy the
+campaigns use, so "BREACH" means chaos-agents would file a finding. The screenshot is a scripted
+session: three blocked attacks, a quarantined memory plant, then egress switched off and the same
+email attack landing, then the whole matrix.
+
+![the range console](proof/range-console.png)
+
+The OpenAI-backed planner is a placeholder in the Planner panel until a key is configured.
+
 ## The design assumption
 
 **The planner is not trusted.** In production the planner is a language model, and a language

@@ -645,13 +645,16 @@ class FortressAdapter:
         """One turn in a named session. Conversations are separate; memory is shared."""
         raw: dict[str, Any] = {}
         mark = len(self.audit)
+        saw = [payload]                  # what the planner was actually given (after normalization)
 
         def finish(reply: str, calls: list[ToolCall]) -> Observation:
             if self.on("output") and self.dlp.has_secret(reply):
                 self._note(session, "output", reply, "reply carried a registered secret")
                 reply = WITHHELD
             blocked = [a.to_dict() for a in self.audit[mark:] if a.decision == "block"]
-            raw["fortress"] = {"blocked": blocked, "layers": [l for l in LAYERS if self.on(l)]}
+            notes = [a.to_dict() for a in self.audit[mark:] if a.decision == "note"]
+            raw["fortress"] = {"blocked": blocked, "notes": notes, "saw": saw[0],
+                               "layers": [l for l in LAYERS if self.on(l)]}
             return Observation(response=reply, tool_calls=calls, raw=raw)
 
         if session.startswith("single-shot-"):
@@ -671,6 +674,7 @@ class FortressAdapter:
                 return finish("I can't process that message.", [])
             if notes:
                 self._note(session, "normalize", payload, "; ".join(notes[:4]), decision="note")
+        saw[0] = text
         low = _comprehend(text).lower()      # what a model would make of it: invisible splits read straight through
 
         if _MEMORY_WRITE.search(text):

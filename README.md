@@ -497,6 +497,7 @@ chaos-agents run campaigns/demo_fortress.yaml    # exits 0: every attack held
 python tools/fortress/siege.py                   # ~2,500 attacks x 18 configurations (layers switched off)
 python tools/fortress/mutants.py                 # seed known defects: does the attack suite find them?
 python tools/fortress/fuzz.py --n 500000         # random messages, properties checked directly
+python tools/fortress/range.py --open            # a local console to attack it by hand (docs/FORTRESS.md)
 ```
 
 With every layer on, nothing got through -- and that is only worth something if the attacks can

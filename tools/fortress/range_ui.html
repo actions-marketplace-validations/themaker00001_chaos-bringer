@@ -1,0 +1,417 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="range-token" content="__TOKEN__">
+<title>Chaos Range</title>
+<style nonce="__NONCE__">
+:root {
+  color-scheme: dark;
+  --bg: #0a0e13; --panel: #10161d; --panel-2: #141c25; --line: #1f2a36; --line-2: #2a3846;
+  --fg: #d7e0ea; --muted: #8697a9; --faint: #5b6b7c;
+  --held: #54d6a2; --held-bg: rgba(84, 214, 162, .10);
+  --block: #ffb454; --block-bg: rgba(255, 180, 84, .10);
+  --breach: #ff5c7a; --breach-bg: rgba(255, 92, 122, .12);
+  --accent: #5ac8fa; --accent-bg: rgba(90, 200, 250, .10);
+  --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, system-ui, sans-serif;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  background: var(--bg); color: var(--fg); font: 14px/1.5 var(--sans);
+  background-image: linear-gradient(var(--line) 1px, transparent 1px), linear-gradient(90deg, var(--line) 1px, transparent 1px);
+  background-size: 48px 48px; background-position: -1px -1px;
+  min-height: 100vh;
+}
+body::before { content: ""; position: fixed; inset: 0; background: radial-gradient(ellipse at 20% -10%, transparent 0, var(--bg) 70%); pointer-events: none; }
+.wrap { position: relative; max-width: 1280px; margin: 0 auto; padding: 20px 16px 48px; }
+header { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; padding-bottom: 16px; }
+.brand { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; min-width: 0; }
+.mark { width: 12px; height: 12px; border-radius: 3px; background: var(--accent); box-shadow: 0 0 0 3px var(--accent-bg), 0 0 18px var(--accent); align-self: center; }
+h1 { margin: 0; font-size: 18px; letter-spacing: .02em; font-weight: 650; }
+.sub { color: var(--muted); font-size: 12.5px; }
+.sub b { color: var(--fg); font-weight: 600; }
+.sub code { font-family: var(--mono); color: var(--accent); }
+h2 { margin: 0 0 10px; font-size: 11px; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); font-weight: 600; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+main { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+aside { display: grid; gap: 16px; min-width: 0; }
+.panel { background: linear-gradient(180deg, var(--panel-2), var(--panel)); border: 1px solid var(--line); border-radius: 10px; padding: 14px; min-width: 0; }
+button { font: inherit; color: var(--fg); background: var(--panel-2); border: 1px solid var(--line-2); border-radius: 6px; padding: 5px 11px; cursor: pointer; }
+button:hover:not(:disabled) { border-color: var(--accent); color: #fff; }
+button:disabled { opacity: .45; cursor: not-allowed; }
+button.primary { background: var(--accent); border-color: var(--accent); color: #04121c; font-weight: 600; }
+button.primary:hover:not(:disabled) { filter: brightness(1.1); color: #04121c; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+.chips button { font-size: 12px; padding: 3px 9px; border-radius: 999px; color: var(--muted); }
+.chips button.attack { border-color: rgba(255, 92, 122, .35); }
+.chips button.legit { border-color: rgba(84, 214, 162, .35); }
+#transcript { display: grid; gap: 10px; max-height: 62vh; min-height: 220px; overflow: auto; padding-right: 4px; margin-bottom: 12px; align-content: start; }
+.brief { color: var(--muted); border: 1px dashed var(--line-2); border-radius: 8px; padding: 12px 14px; font-size: 13px; }
+.brief b { color: var(--fg); }
+.turn { border: 1px solid var(--line); border-radius: 8px; background: rgba(10, 14, 19, .55); overflow: hidden; }
+.turn.finding { border-color: rgba(255, 92, 122, .6); box-shadow: 0 0 0 1px var(--breach-bg) inset; }
+.turn-head { display: flex; gap: 8px; align-items: flex-start; padding: 8px 10px; border-bottom: 1px solid var(--line); }
+.badge { font: 600 10.5px var(--mono); letter-spacing: .05em; text-transform: uppercase; padding: 2px 6px; border-radius: 4px; border: 1px solid var(--line-2); color: var(--muted); white-space: nowrap; }
+.badge.attacker { color: var(--breach); border-color: rgba(255, 92, 122, .4); }
+.badge.victim { color: var(--accent); border-color: rgba(90, 200, 250, .4); }
+.said { font-family: var(--mono); font-size: 12.5px; white-space: pre-wrap; overflow-wrap: anywhere; min-width: 0; }
+.turn-body { padding: 8px 10px; display: grid; gap: 7px; }
+.saw { font: 11.5px var(--mono); color: var(--faint); white-space: pre-wrap; overflow-wrap: anywhere; }
+.saw b { color: var(--muted); font-weight: 600; }
+.reply { white-space: pre-wrap; overflow-wrap: anywhere; }
+.tags { display: flex; flex-wrap: wrap; gap: 5px; }
+.tag { font: 11.5px var(--mono); border-radius: 5px; padding: 2px 7px; border: 1px solid; overflow-wrap: anywhere; max-width: 100%; }
+.tag.ok { color: var(--held); background: var(--held-bg); border-color: rgba(84, 214, 162, .35); }
+.tag.blocked { color: var(--block); background: var(--block-bg); border-color: rgba(255, 180, 84, .4); }
+.tag.finding { color: var(--breach); background: var(--breach-bg); border-color: rgba(255, 92, 122, .5); font-weight: 600; }
+.tag.note { color: var(--muted); border-color: var(--line-2); }
+.verdict { font: 600 11px var(--mono); letter-spacing: .08em; text-transform: uppercase; padding: 5px 10px; border-top: 1px solid var(--line); }
+.verdict.held { color: var(--held); background: var(--held-bg); }
+.verdict.breach { color: var(--breach); background: var(--breach-bg); }
+.verdict.quiet { color: var(--muted); }
+details summary { cursor: pointer; color: var(--faint); font-size: 12px; }
+details pre { margin: 4px 0 0; font: 11.5px var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; color: var(--muted); }
+form#composer { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 8px; align-items: stretch; }
+select, textarea { font: 13px var(--mono); color: var(--fg); background: var(--bg); border: 1px solid var(--line-2); border-radius: 6px; padding: 7px 9px; min-width: 0; }
+textarea { resize: vertical; min-height: 40px; max-height: 180px; }
+.layer { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 7px 0; border-top: 1px solid var(--line); }
+.layer:first-of-type { border-top: 0; }
+.layer .name { font: 600 12.5px var(--mono); }
+.layer .about { color: var(--muted); font-size: 12px; line-height: 1.35; }
+.layer.off .name { color: var(--faint); text-decoration: line-through; }
+.count { font: 11px var(--mono); min-width: 28px; text-align: center; padding: 2px 6px; border-radius: 999px; border: 1px solid var(--line-2); color: var(--faint); }
+.count.hot { color: var(--block); border-color: rgba(255, 180, 84, .5); background: var(--block-bg); }
+.switch { width: 34px; height: 20px; padding: 0; border-radius: 999px; position: relative; background: var(--bg); border-color: var(--line-2); }
+.switch::after { content: ""; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 50%; background: var(--faint); transition: transform .15s, background .15s; }
+.switch[aria-checked="true"] { border-color: rgba(90, 200, 250, .6); background: var(--accent-bg); }
+.switch[aria-checked="true"]::after { transform: translateX(14px); background: var(--accent); }
+.row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 10px; }
+.hint { color: var(--faint); font-size: 12px; }
+.note-list { display: grid; gap: 6px; }
+.mem { font: 12px var(--mono); border: 1px solid var(--line); border-radius: 6px; padding: 5px 8px; overflow-wrap: anywhere; white-space: pre-wrap; }
+.mem.q { border-color: rgba(255, 180, 84, .4); background: var(--block-bg); }
+.mem small { display: block; color: var(--faint); font-size: 10.5px; letter-spacing: .06em; text-transform: uppercase; }
+.fam { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 9px; align-items: start; padding: 6px 0; border-top: 1px solid var(--line); }
+.fam:first-of-type { border-top: 0; }
+.fam .name { font: 600 12.5px var(--mono); }
+.fam .size { font: 11.5px var(--mono); color: var(--faint); }
+.fam .about { color: var(--muted); font-size: 12px; line-height: 1.35; }
+table { border-collapse: collapse; width: 100%; font: 12px var(--mono); }
+th, td { text-align: left; padding: 4px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { color: var(--muted); font-weight: 600; font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase; }
+td.num, th.num { text-align: right; }
+.scroll { overflow-x: auto; }
+.cell { text-align: center; min-width: 34px; }
+.cell.zero { color: var(--held); background: var(--held-bg); }
+.cell.hit { color: #fff; background: var(--breach); }
+td.cfg { white-space: nowrap; }
+td.cfg.base { color: var(--held); font-weight: 600; }
+.pill { font: 11px var(--mono); padding: 1px 7px; border-radius: 999px; border: 1px solid; }
+.pill.held { color: var(--held); border-color: rgba(84, 214, 162, .4); }
+.pill.breach { color: var(--breach); border-color: rgba(255, 92, 122, .5); }
+.planner { display: grid; gap: 8px; }
+.opt { border: 1px solid var(--line-2); border-radius: 8px; padding: 8px 10px; }
+.opt.on { border-color: rgba(90, 200, 250, .5); background: var(--accent-bg); }
+.opt.disabled { opacity: .55; border-style: dashed; }
+.opt b { font-size: 13px; }
+.opt p { margin: 2px 0 0; color: var(--muted); font-size: 12px; }
+#matrixPanel { margin-top: 16px; }
+.error { color: var(--breach); font-size: 12.5px; margin-top: 8px; }
+@media (max-width: 900px) { main { grid-template-columns: minmax(0, 1fr); } #transcript { max-height: 50vh; } form#composer { grid-template-columns: minmax(0, 1fr); } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="brand">
+      <span class="mark" aria-hidden="true"></span>
+      <h1>Chaos Range</h1>
+      <span class="sub">target <b>fortress</b> &middot; planner <b>deterministic</b>, gullible by design &middot; <span id="layerCount">&hellip;</span> &middot; <code>127.0.0.1</code> only, no network</span>
+    </div>
+    <div class="row" style="margin:0">
+      <button id="reset" type="button" title="Forget memory and the per-session counters">Reset memory</button>
+    </div>
+  </header>
+
+  <main>
+    <section class="panel" aria-labelledby="h-console">
+      <h2 id="h-console">Console <span class="hint" style="letter-spacing:0;text-transform:none">every attack goes through the real policy engine</span></h2>
+      <div class="chips" id="presets" aria-label="Preset attacks"></div>
+      <div id="transcript" role="log" aria-live="polite">
+        <div class="brief" id="brief">
+          <b>Try to get something out.</b> The agent holds a document with an integration key. Ask it to mail or post that
+          somewhere it should not, or to delete the database. Each turn shows what the agent <i>saw</i> after normalization,
+          which tool calls actually <b>ran</b>, which were <b>blocked</b> and by which layer, and whether chaos-agents would file a
+          <b>finding</b>. Then switch a defence off on the right and send the same attack again.
+        </div>
+      </div>
+      <form id="composer" autocomplete="off">
+        <select id="session" aria-label="Session"><option value="victim">victim</option><option value="attacker">attacker</option></select>
+        <textarea id="msg" rows="2" placeholder="Type an attack&hellip; (Enter to send, Shift+Enter for a new line)" aria-label="Message"></textarea>
+        <button class="primary" id="send" type="submit">Send</button>
+      </form>
+      <div class="error" id="err" role="alert" hidden></div>
+    </section>
+
+    <aside>
+      <section class="panel" aria-labelledby="h-layers">
+        <h2 id="h-layers">Defences <span class="hint" style="letter-spacing:0;text-transform:none">blocks this session</span></h2>
+        <div id="layers"></div>
+        <div class="row">
+          <button id="allOn" type="button">All on</button>
+          <button id="allOff" type="button">Naive agent (all off)</button>
+          <span class="hint">changing a layer starts a fresh agent</span>
+        </div>
+      </section>
+
+      <section class="panel" aria-labelledby="h-mem">
+        <h2 id="h-mem">Memory</h2>
+        <div class="note-list" id="memory"></div>
+      </section>
+
+      <section class="panel" aria-labelledby="h-siege">
+        <h2 id="h-siege">Siege <span class="hint" style="letter-spacing:0;text-transform:none">against the current layers</span></h2>
+        <div id="families"></div>
+        <div class="row"><button class="primary" id="runSiege" type="button">Run selected</button><span class="hint" id="siegeStatus"></span></div>
+        <div class="scroll"><table id="siegeTable" hidden><thead><tr><th>family</th><th class="num">trials</th><th class="num">findings</th><th>blocked by</th></tr></thead><tbody></tbody></table></div>
+        <div class="hint" id="siegeExample"></div>
+      </section>
+
+      <section class="panel" aria-labelledby="h-planner">
+        <h2 id="h-planner">Planner</h2>
+        <div class="planner">
+          <div class="opt on"><b>Deterministic</b><p>Follows the message and its memory like a naive agent. The defences are what is under test.</p></div>
+          <div class="opt disabled" id="openaiOpt"><b>OpenAI model</b><p id="openaiWhy">No key configured. A real model will propose the tool calls; the same gate will decide what they may do.</p></div>
+        </div>
+      </section>
+    </aside>
+  </main>
+
+  <section class="panel" id="matrixPanel" aria-labelledby="h-matrix">
+    <h2 id="h-matrix">Ablation matrix</h2>
+    <p class="hint" style="margin:0 0 8px">Every configuration x the selected families: findings per cell. Where a layer is removed and the cell turns red, that layer was the one holding.</p>
+    <div class="row" style="margin-top:0"><button class="primary" id="runMatrix" type="button">Run matrix</button><button id="stopMatrix" type="button" hidden>Stop</button><span class="hint" id="matrixStatus"></span></div>
+    <div class="scroll"><table id="matrixTable" hidden><thead></thead><tbody></tbody></table></div>
+  </section>
+</div>
+
+<script nonce="__NONCE__">
+"use strict";
+(() => {
+  const TOKEN = document.querySelector('meta[name="range-token"]').content;
+  history.replaceState(null, "", "/");   // the token should not sit in the address bar or history
+
+  const $ = (id) => document.getElementById(id);
+  const state = { layers: [], families: [], configs: [], presets: [], busy: false, stop: false, selected: new Set() };
+
+  // attacker text is data: shown via textContent only, with invisible/bidirectional characters made visible
+  const INVISIBLE = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f­؜᠎​-‏‪-‮⁠-⁯﻿￹-￻\u{e0000}-\u{e007f}]/gu;
+  const NAMED = { "\n": "↵\n", "\t": "⇥", "\r": "␍" };
+  function visible(s) {
+    return String(s).replace(INVISIBLE, (c) => "⟨U+" + c.codePointAt(0).toString(16).toUpperCase().padStart(4, "0") + "⟩")
+                    .replace(/[\t\r]/g, (c) => NAMED[c]);
+  }
+  function h(tag, attrs, ...kids) {
+    const el = document.createElement(tag);
+    for (const [k, v] of Object.entries(attrs || {})) {
+      if (k === "class") el.className = v; else if (k === "text") el.textContent = v; else el.setAttribute(k, v);
+    }
+    for (const kid of kids) if (kid != null) el.append(kid);
+    return el;
+  }
+  function text(s) { return document.createTextNode(visible(s)); }
+
+  async function api(path, body) {
+    const opts = { headers: { "X-Range-Token": TOKEN } };
+    if (body !== undefined) { opts.method = "POST"; opts.headers["Content-Type"] = "application/json"; opts.body = JSON.stringify(body); }
+    const res = await fetch(path, opts);
+    const data = await res.json().catch(() => ({ error: "unreadable response" }));
+    if (!res.ok) throw new Error(data.error || res.statusText);
+    return data;
+  }
+  function showError(msg) { const e = $("err"); e.hidden = !msg; e.textContent = msg || ""; }
+
+  // ---- render ----------------------------------------------------------------
+  function disabledLayers() { return state.layers.filter((l) => !l.on).map((l) => l.name); }
+
+  function renderLayers() {
+    const root = $("layers");
+    root.replaceChildren();
+    for (const l of state.layers) {
+      const sw = h("button", { class: "switch", type: "button", role: "switch", "aria-checked": String(l.on), "aria-label": l.name });
+      sw.addEventListener("click", () => setLayers(l.on ? [...disabledLayers(), l.name] : disabledLayers().filter((n) => n !== l.name)));
+      root.append(h("div", { class: "layer" + (l.on ? "" : " off") }, sw,
+        h("div", null, h("div", { class: "name", text: l.name }), h("div", { class: "about", text: l.about })),
+        h("span", { class: "count" + (l.blocks ? " hot" : ""), text: String(l.blocks), title: "calls this layer has blocked" })));
+    }
+    const on = state.layers.filter((l) => l.on).length;
+    $("layerCount").textContent = on + "/" + state.layers.length + " layers on";
+  }
+
+  function renderMemory(s) {
+    const root = $("memory");
+    root.replaceChildren();
+    if (!s.memory.length && !s.quarantine.length) { root.append(h("div", { class: "hint", text: "Empty. Notes an attacker plants show up here, or in quarantine." })); return; }
+    for (const m of s.memory) root.append(h("div", { class: "mem" }, h("small", { text: "stored · " + m.session }), text(m.note)));
+    for (const q of s.quarantine) root.append(h("div", { class: "mem q" }, h("small", { text: "quarantined · " + q.session + " · " + q.why }), text(q.note)));
+  }
+
+  function renderPresets() {
+    const root = $("presets");
+    root.replaceChildren();
+    for (const p of state.presets) {
+      const legit = p.label.startsWith("Legit");
+      const b = h("button", { type: "button", class: legit ? "legit" : "attack", text: p.label, title: p.session + ": " + visible(p.text) });
+      b.addEventListener("click", () => { $("session").value = p.session; $("msg").value = p.text; send(); });
+      root.append(b);
+    }
+  }
+
+  function renderFamilies() {
+    const root = $("families");
+    root.replaceChildren();
+    for (const f of state.families) {
+      const box = h("input", { type: "checkbox", id: "fam-" + f.name, "aria-label": f.name });
+      box.checked = state.selected.has(f.name);
+      box.addEventListener("change", () => { box.checked ? state.selected.add(f.name) : state.selected.delete(f.name); });
+      root.append(h("label", { class: "fam", for: "fam-" + f.name }, box,
+        h("div", null, h("div", { class: "name", text: f.name }), h("div", { class: "about", text: f.about })),
+        h("span", { class: "size", text: f.size.toLocaleString() })));
+    }
+  }
+
+  function applyState(s) {
+    state.layers = s.layers;
+    renderLayers();
+    renderMemory(s);
+  }
+
+  function renderTurn(msg, session, res) {
+    const findings = res.findings || [];
+    const ran = res.tool_calls.filter((c) => c.name !== "memory_read" && c.name !== "search_docs");
+    const turn = h("div", { class: "turn" + (findings.length ? " finding" : "") });
+    turn.append(h("div", { class: "turn-head" }, h("span", { class: "badge " + session, text: session }), h("div", { class: "said" }, text(msg))));
+    const body = h("div", { class: "turn-body" });
+    if (res.saw !== msg) body.append(h("div", { class: "saw" }, h("b", { text: "the agent saw  " }), text(res.saw)));
+    body.append(h("div", { class: "reply" }, text(res.response)));
+    const tags = h("div", { class: "tags" });
+    for (const c of res.tool_calls) {
+      const quiet = c.name === "memory_read" || c.name === "search_docs";
+      const tag = h("span", { class: "tag " + (quiet ? "note" : "ok") }, text((quiet ? "" : "✓ ran ") + c.name));
+      tags.append(tag);
+    }
+    for (const b of res.blocked) tags.append(h("span", { class: "tag blocked" }, text("⛔ " + b.layer + " — " + b.reason)));
+    for (const n of res.notes) tags.append(h("span", { class: "tag note" }, text(n.layer + ": " + n.reason)));
+    for (const f of findings) tags.append(h("span", { class: "tag finding" }, text("FINDING — " + f)));
+    if (tags.childNodes.length) body.append(tags);
+    if (res.tool_calls.length) {
+      const d = h("details", null, h("summary", { text: "tool calls" }), h("pre", null, text(res.tool_calls.map((c) => c.name + " " + c.arguments).join("\n"))));
+      body.append(d);
+    }
+    turn.append(body);
+    let cls = "quiet", label = "no sensitive action attempted";
+    if (findings.length) { cls = "breach"; label = "breach — chaos-agents would file " + findings.length + " finding" + (findings.length > 1 ? "s" : ""); }
+    else if (res.blocked.length) { cls = "held"; label = "held — " + res.blocked.length + " attempt" + (res.blocked.length > 1 ? "s" : "") + " blocked, nothing left"; }
+    else if (ran.length) { cls = "held"; label = "allowed — within policy"; }
+    turn.append(h("div", { class: "verdict " + cls, text: label }));
+    const log = $("transcript");
+    const brief = $("brief"); if (brief) brief.remove();
+    log.append(turn);
+    log.scrollTop = log.scrollHeight;
+  }
+
+  // ---- actions -------------------------------------------------------------------
+  async function send() {
+    const msg = $("msg").value;
+    if (!msg.trim() || state.busy) return;
+    const session = $("session").value;
+    state.busy = true; $("send").disabled = true; showError("");
+    try {
+      const res = await api("/api/chat", { message: msg, session });
+      $("msg").value = "";
+      renderTurn(msg, session, res);
+      applyState(res.state);
+    } catch (e) { showError(e.message); }
+    state.busy = false; $("send").disabled = false; $("msg").focus();
+  }
+
+  async function setLayers(disable) {
+    try { applyState(await api("/api/layers", { disable })); $("transcript").append(h("div", { class: "hint", text: "— fresh agent: " + (disable.length ? "off: " + disable.join(", ") : "all layers on") + " —" })); }
+    catch (e) { showError(e.message); }
+  }
+
+  function blockedText(b) { const k = Object.entries(b || {}); return k.length ? k.map(([l, n]) => l + " " + n).join(" · ") : "—"; }
+
+  async function runSiege() {
+    const fams = state.families.filter((f) => state.selected.has(f.name));
+    if (!fams.length || state.busy) return;
+    state.busy = true; $("runSiege").disabled = true; showError("");
+    const table = $("siegeTable"), body = table.querySelector("tbody");
+    body.replaceChildren(); table.hidden = false; $("siegeExample").textContent = "";
+    let shown = false;
+    for (const f of fams) {
+      $("siegeStatus").textContent = "running " + f.name + "…";
+      try {
+        const r = await api("/api/attack", { family: f.name, disable: disabledLayers() });
+        const row = h("tr", null, h("td", { text: f.name }), h("td", { class: "num", text: r.trials.toLocaleString() }),
+          h("td", { class: "num" }, h("span", { class: "pill " + (r.findings ? "breach" : "held"), text: r.findings ? String(r.findings) : "held" })),
+          h("td", { text: blockedText(r.blocked_by_layer) }));
+        body.append(row);
+        if (r.findings && !shown) { shown = true; $("siegeExample").replaceChildren(h("b", { text: "e.g. " }), text(r.examples[0] || "")); }
+      } catch (e) { showError(e.message); break; }
+    }
+    $("siegeStatus").textContent = "done";
+    state.busy = false; $("runSiege").disabled = false;
+  }
+
+  async function runMatrix() {
+    const fams = state.families.filter((f) => state.selected.has(f.name));
+    if (!fams.length || state.busy) return;
+    state.busy = true; state.stop = false; showError("");
+    $("runMatrix").disabled = true; $("stopMatrix").hidden = false;
+    const table = $("matrixTable"), head = table.querySelector("thead"), body = table.querySelector("tbody");
+    head.replaceChildren(h("tr", null, h("th", { text: "configuration" }), ...fams.map((f) => h("th", { class: "num", text: f.name })), h("th", { class: "num", text: "total" })));
+    body.replaceChildren(); table.hidden = false;
+    const total = state.configs.length * fams.length; let done = 0;
+    outer: for (const cfg of state.configs) {
+      const row = h("tr", null, h("td", { class: "cfg" + (cfg.disable.length ? "" : " base"), text: cfg.name }));
+      body.append(row);
+      let sum = 0;
+      for (const f of fams) {
+        if (state.stop) break outer;
+        $("matrixStatus").textContent = (++done) + "/" + total;
+        try {
+          const r = await api("/api/attack", { family: f.name, disable: cfg.disable });
+          sum += r.findings;
+          row.append(h("td", { class: "cell " + (r.findings ? "hit" : "zero"), text: String(r.findings), title: r.trials + " trials" }));
+        } catch (e) { showError(e.message); break outer; }
+      }
+      row.append(h("td", { class: "num", text: String(sum) }));
+    }
+    $("matrixStatus").textContent = state.stop ? "stopped" : "done";
+    $("runMatrix").disabled = false; $("stopMatrix").hidden = true; state.busy = false;
+  }
+
+  // ---- wiring ---------------------------------------------------------------------
+  $("composer").addEventListener("submit", (e) => { e.preventDefault(); send(); });
+  $("msg").addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } });
+  $("reset").addEventListener("click", async () => { try { applyState(await api("/api/reset", {})); $("transcript").append(h("div", { class: "hint", text: "— memory cleared —" })); } catch (e) { showError(e.message); } });
+  $("allOn").addEventListener("click", () => setLayers([]));
+  $("allOff").addEventListener("click", () => setLayers(state.layers.map((l) => l.name)));
+  $("runSiege").addEventListener("click", runSiege);
+  $("runMatrix").addEventListener("click", runMatrix);
+  $("stopMatrix").addEventListener("click", () => { state.stop = true; });
+
+  api("/api/state").then((s) => {
+    Object.assign(state, { families: s.families, configs: s.configs, presets: s.presets });
+    state.selected = new Set(s.families.map((f) => f.name));
+    renderPresets(); renderFamilies(); applyState(s);
+    if (s.planner && s.planner.openai && !s.planner.openai.available) $("openaiWhy").textContent = "Not configured (" + s.planner.openai.why + "). A real model will propose the tool calls; the same gate will decide what they may do.";
+  }).catch((e) => showError(e.message));
+})();
+</script>
+</body>
+</html>
