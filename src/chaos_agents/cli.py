@@ -105,6 +105,9 @@ def _cmd_run(args: argparse.Namespace) -> int:
         print(f"promoted {promoted} finding(s) to {args.promote}", file=sys.stderr)
 
     print(f"Full trace: {corpus.results_path}", file=sys.stderr)
+    search_report = corpus.run_dir / "adaptive_search.json"
+    if search_report.exists():
+        print(f"Search report: {search_report}", file=sys.stderr)
     # exit non-zero only for a confirmed finding -- not for inconclusive/errored trials
     return 1 if any(r.status == FAIL for r in records) else 0
 

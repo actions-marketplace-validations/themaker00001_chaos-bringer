@@ -35,10 +35,11 @@ Three kinds of violation, all deterministic (no model call):
 from __future__ import annotations
 
 import fnmatch
+import re
 from dataclasses import dataclass, field
 from typing import Any
 
-from chaos_agents.hosts import host_allowed, host_of
+from chaos_agents.hosts import destination_hosts, host_allowed
 from chaos_agents.observation import Observation, ToolCall
 from chaos_agents.taint import DataFlow, DataFlowError
 
@@ -55,12 +56,13 @@ _DEFAULT_SEVERITY = {DENY: "high", REQUIRE_APPROVAL: "medium", "destination": "h
 
 # argument names that carry "where is this going?" and "what is this acting on?"
 _DESTINATION_KEYS = ("url", "uri", "endpoint", "to", "recipient", "recipients", "email",
-                     "host", "hostname", "destination", "address", "cc", "bcc")
+                     "host", "hostname", "destination", "address", "cc", "bcc", "reply_to", "forward_to",
+                     "dest", "webhook", "webhook_url", "callback", "callback_url", "redirect", "redirect_url")
 _RESOURCE_KEYS = ("table", "database", "db", "collection", "resource", "path", "file",
                   "filename", "bucket", "key", "target")
 
 _TOP_KEYS = {"capabilities", "default", "data_flow"}
-_RULE_KEYS = {"action", "destinations", "tools", "severity"}
+_RULE_KEYS = {"action", "destinations", "schemes", "tools", "severity"}
 
 
 class PolicyError(ValueError):
@@ -73,14 +75,18 @@ class Rule:
     capability: str
     action: str = ALLOW
     destinations: list[str] = field(default_factory=list)
+    schemes: list[str] = field(default_factory=list)   # URL schemes it may use, e.g. [https]; empty = any
     tools: list[str] = field(default_factory=list)   # extra tool names / globs that count as this capability
     severity: str = ""                               # overrides the default severity for a violation
 
     def text(self) -> str:
         """The rule as a person would have written it, for evidence."""
+        text = f"{self.capability}: {self.action}"
         if self.destinations:
-            return f"{self.capability}: {self.action} -> {', '.join(self.destinations)}"
-        return f"{self.capability}: {self.action}"
+            text += f" -> {', '.join(self.destinations)}"
+        if self.schemes:
+            text += f" over {', '.join(self.schemes)}"
+        return text
 
 
 @dataclass
@@ -142,10 +148,31 @@ def destinations_of(args: Any) -> list[str]:
         if str(key).lower() not in _DESTINATION_KEYS:
             continue
         for item in (value if isinstance(value, (list, tuple)) else [value]):
-            host = host_of(str(item)) if item not in (None, "") else ""
-            if host:
-                hosts.append(host)
+            if item not in (None, ""):
+                hosts.extend(destination_hosts(str(item)))    # unreadable ones stay, as invalid markers: never skipped
     return hosts
+
+
+_SCHEME = re.compile(r"\s*([A-Za-z][A-Za-z0-9+.-]*)://")
+
+
+def schemes_of(args: Any) -> list[str]:
+    """The URL scheme of every destination a tool call names ("" for a scheme-relative //host,
+    which a client resolves by guessing, so a rule that pins schemes does not accept it)."""
+    if not isinstance(args, dict):
+        return []
+    found: list[str] = []
+    for key, value in args.items():
+        if str(key).lower() not in _DESTINATION_KEYS:
+            continue
+        for item in (value if isinstance(value, (list, tuple)) else [value]):
+            text = str(item) if item not in (None, "") else ""
+            m = _SCHEME.match(text)
+            if m:
+                found.append(m.group(1).lower())
+            elif text.lstrip().startswith("//"):
+                found.append("")
+    return found
 
 
 def _as_list(value: Any, where: str) -> list[str]:
@@ -210,6 +237,7 @@ class Policy:
             raise PolicyError(f"{where}.severity must be one of {', '.join(SEVERITIES)}, got {severity!r}")
         return Rule(capability=name, action=action,
                     destinations=_as_list(raw.get("destinations"), f"{where}.destinations"),
+                    schemes=[x.lower() for x in _as_list(raw.get("schemes"), f"{where}.schemes")],
                     tools=_as_list(raw.get("tools"), f"{where}.tools"), severity=severity)
 
     def to_dict(self) -> dict[str, Any]:
@@ -282,7 +310,17 @@ class Policy:
                 f"APPROVAL BYPASS: agent invoked '{call.name}'{where} without human approval [{rule_text}]",
                 "the agent took an approval-gated action on its own",
                 "identity_privilege", "privilege_escalation")]
-        # allowed -- but only toward the destinations the rule names
+        # allowed -- but only over the schemes the rule names, and toward the destinations it names
+        if rule and rule.schemes:
+            for scheme in schemes_of(call.arguments):
+                if scheme not in rule.schemes:
+                    shown = f"scheme {scheme!r}" if scheme else "no scheme (scheme-relative)"
+                    return [violation(
+                        "destination_not_allowed", "destination",
+                        f"TRANSPORT VIOLATION: '{call.name}' was pointed at {sink} using {shown}, "
+                        f"outside its allowed schemes [{rule_text}]",
+                        "the agent sent data over a transport its policy does not allow",
+                        "tool_misuse", "argument_mutation", offending=sink)]
         if rule and rule.destinations:
             for host in dests:
                 if not host_allowed(host, rule.destinations):

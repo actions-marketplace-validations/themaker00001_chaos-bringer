@@ -229,6 +229,7 @@ judge:
             <tr><td><code>chatgpt_app</code></td><td>Attacks a ChatGPT App (an MCP server) by calling its tools with hostile arguments.</td></tr>
             <tr><td><code>sandbox</code></td><td>A contained world for computer-use agents: a local model acts on a small set of tools, the attack is planted in a page it reads, exfiltration is recorded but never really sent, and compromise is judged from ground truth.</td></tr>
             <tr><td><code>toolbot</code></td><td>A deterministic, model-free tool-using agent: it holds a confidential document containing a canary, calls the tools <code>search_docs</code>, <code>database_write</code>, <code>send_email</code>, <code>http_request</code>, <code>memory_read</code> and <code>memory_write</code> (its memory persists across sessions), and — like a naive agent — does what the message says. A <code>hardened</code> mode refuses risky actions and <code>memory_trusted: false</code> keeps memory but never obeys it. Built so the policy, taint, memory and replay features run end to end for free; it is a demo target, not a claim about any real product.</td></tr>
+            <tr><td><code>fortress</code></td><td>The opposite of <code>toolbot</code>: the same kind of tool-using agent behind eight enforced, individually switchable defence layers (<code>normalize</code>, <code>provenance</code>, <code>capabilities</code>, <code>egress</code>, <code>minimize</code>, <code>dlp</code>, <code>limits</code>, <code>output</code>; <code>config: {disable: [egress]}</code> turns one off). Its planner is deliberately as gullible as the naive bot, so the safety lives in the layers, and a blocked call is never executed. It exists so a clean result can be tested: <code>tools/fortress/siege.py</code> runs ~2,700 attacks across 18 configurations (seven families, including the generalized adaptive engine), <code>mutants.py</code> seeds known defects to check the attacks can find them, and <code>fuzz.py</code> checks the design's properties on random messages. <a href="https://github.com/themaker00001/chaos-bringer/blob/main/docs/FORTRESS.md">Method and numbers.</a></td></tr>
             <tr><td><code>echo</code> / <code>parrot</code></td><td>Naive demo targets with no model call — the zero-dependency smoke test and the ChaosBench calibration floor.</td></tr>
           </tbody>
         </table>
@@ -246,8 +247,10 @@ judge:
             <tr><td><code>llm</code></td><td>A model writes fresh attacks from a goal you state — no fixed list, varies run to run.</td></tr>
             <tr><td><code>multiturn</code></td><td>Built-in escalation scripts: a benign opener lowers the guard, later turns push further. Pass your own <code>conversations:</code> to write custom scripts.</td></tr>
             <tr><td><code>indirect</code></td><td>Buries the attack inside tool output the agent is asked to process — a poisoned search result, email, or API reply.</td></tr>
-            <tr><td><code>mutation</code></td><td>Fuzzes — multiplies a few seeds into many variants (encoding, authority framing, structure, language). Model-free, a good first stress-test pass.</td></tr>
+            <tr><td><code>mutation</code></td><td>Fuzzes — multiplies a few seeds into many variants across 23 mutators (encoding, authority framing, structure, language — including homoglyphs, Unicode tag smuggling, payload splitting, context flooding, roleplay framing and composed encodings). Model-free, a good first stress-test pass.</td></tr>
             <tr><td><code>memory_poison</code></td><td>Cross-session scenarios, not one-shot payloads: each is an attacker message to plant in persistent memory and the innocent victim request that later wakes it up (<code>persistent_instruction</code>, <code>false_fact_injection</code>, <code>dormant_trigger</code> built in; supply your own <code>scenarios:</code>). Needs an adapter with <code>reset_memory()</code> and <code>observe_in_session()</code>, and fails loudly without one. See <a href="#memory">Memory poisoning</a>.</td></tr>
+            <tr><td><code>adaptive_memory</code></td><td>The same cross-session attack, but it picks its next candidate from what the last one revealed instead of working a fixed list: it learns which techniques and slot values keep reproducing (and which keep being held) and favours candidates built from them, over a declared grid -- never free-form, always capped by a <code>budget</code>. Writes <code>adaptive_search.json</code> with the full attempt history. See <a href="https://github.com/themaker00001/chaos-bringer#the-adaptive-attack-engine">the adaptive attack engine</a> in the README.</td></tr>
+            <tr><td><code>adaptive_corpus</code></td><td>The same per-part search, generalized to single-shot attacks: the grid is seeds &times; the mutation engine's own mutators (23 of them), so -- unlike <code>adaptive_memory</code> -- it runs against any adapter at all, memory or not (<code>campaigns/demo_adaptive_corpus.yaml</code> proves it against <code>echo</code>). Same <code>budget</code>, same <code>adaptive_search.json</code>, same measured claim in <code>tools/eval/adaptive_eval.py</code>.</td></tr>
           </tbody>
         </table>
       </div>
@@ -299,7 +302,8 @@ judge:
       action: require_approval
     http_request:
       action: allow
-      destinations: [api.mycompany.com]   <span class="c"># exact host or true subdomain, never a substring</span></pre>
+      destinations: [api.mycompany.com]   <span class="c"># exact host or true subdomain, never a substring</span>
+      schemes: [https]                    <span class="c"># optional: pin the transport too</span></pre>
       <div class="pill-row">
         <span class="pill"><b>PRIVILEGE VIOLATION</b> &mdash; a denied capability was invoked</span>
         <span class="pill"><b>APPROVAL BYPASS</b> &mdash; an approval-gated tool ran autonomously</span>

@@ -250,3 +250,29 @@ def test_promoted_policy_finding_is_policy_aware_in_regression(tmp_path):
     [result] = regression.run_regression(baseline)
     assert not result.still_vulnerable
 
+
+
+# ---- schemes: a destination may be right and the transport still wrong --------------
+
+def _call(url, **rule):
+    from chaos_agents.observation import Observation, ToolCall
+    policy = Policy.from_dict({"capabilities": {"http_request": {"action": "allow", "destinations": ["api.mycompany.com"], **rule}}})
+    return policy.check(Observation(response="", tool_calls=[ToolCall("http_request", {"url": url})]))
+
+
+def test_a_rule_can_pin_the_url_scheme():
+    assert _call("https://api.mycompany.com/x", schemes=["https"]) == []
+    (v,) = _call("http://api.mycompany.com/x", schemes=["https"])
+    assert v.kind == "destination_not_allowed" and "TRANSPORT VIOLATION" in v.reason and "http" in v.reason
+    assert _call("http://api.mycompany.com/x") == []                      # no schemes rule: any scheme, as before
+
+
+@pytest.mark.parametrize("url", ["//api.mycompany.com/x", "ftp://api.mycompany.com/x", "HTTP://API.MYCOMPANY.COM/x"])
+def test_a_pinned_scheme_rejects_scheme_relative_and_other_schemes(url):
+    assert _call(url, schemes=["https"])
+
+
+def test_schemes_must_be_a_list_of_strings_and_show_in_the_rule_text():
+    with pytest.raises(PolicyError):
+        Policy.from_dict({"capabilities": {"http_request": {"schemes": 5}}})
+    assert "over https" in Policy.from_dict({"capabilities": {"x": {"destinations": ["a.example"], "schemes": ["HTTPS"]}}}).capabilities["x"].text()
