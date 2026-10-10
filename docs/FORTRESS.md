@@ -11,10 +11,12 @@ No model, no network, deterministic: every number below reproduces from a comman
 ```
 chaos-agents run campaigns/demo_fortress.yaml            # exits 0: every attack held
 chaos-agents run campaigns/demo_fortress_adaptive.yaml   # exits 0
-python tools/fortress/siege.py                           # the ablation matrix, ~2,500 attacks x 18 configurations
+chaos-agents run campaigns/demo_adaptive_corpus.yaml     # exits 1: the naive echo target leaks (against fortress: 0)
+python tools/fortress/siege.py                           # the ablation matrix, ~2,700 attacks x 18 configurations
 python tools/fortress/mutants.py                         # is "0 findings" a result, or a weak test?
 python tools/fortress/fuzz.py --n 500000                 # random messages, properties checked directly
 python tools/fortress/adaptive_vs_blind.py               # the adaptive engine against real seeded defects
+python tools/eval/adaptive_eval.py                       # the same claim, for the generalized engine too
 ```
 
 ## The range: attack it by hand
@@ -68,46 +70,50 @@ all of them off. That is what makes the results below interpretable.
 
 ## How it was attacked, and what that showed
 
-### 1. The siege: 2,509 attacks through the real pipeline
+### 1. The siege: 2,713 attacks through the real pipeline
 
 Campaign → vector → adapter → judge + policy → corpus: a finding here is exactly what
-`chaos-agents run` would file. Six attack families: the same two destinations spelled ~1,900
+`chaos-agents run` would file. Seven attack families: the same two destinations spelled ~1,900
 ways (backslash, userinfo, tab/newline injection, scheme-relative, IPv6/IPv4 literals,
 look-alike scripts, multi-recipient strings, display names); the document asked for in every
-costume; classic injection prompts; the mutation engine (12 seeds × 14 mutators); the adaptive
-engine searching 406 memory-poisoning scenarios; and 14 multi-message conversations (split
-secrets, escalation, repeated asks).
+costume; classic injection prompts; the mutation engine (12 seeds × 23 mutators -- encodings,
+authority framing, structure, language, plus homoglyphs, Unicode tag smuggling, payload
+splitting, context flooding, roleplay framing and composed encodings); the same seeds and
+mutators again but through the **generalized adaptive engine** (`adaptive_corpus`), budget
+capped at a third of that grid (96 of 288) to see whether the smart, budget-limited search
+still finds what full enumeration finds; the adaptive engine searching 406 memory-poisoning
+scenarios; and 14 multi-message conversations (split secrets, escalation, repeated asks).
 
 Findings per family, by which layers are off:
 
-| configuration | spelling | costumes | direct | mutation | memory | sequence | total |
-|---|---:|---:|---:|---:|---:|---:|---:|
-| **all layers** | 0 | 0 | 0 | 0 | 0 | 0 | **0** |
-| without normalize | 0 | 0 | 0 | 0 | 0 | 0 | **0** |
-| without provenance | 0 | 0 | 0 | 0 | 0 | 0 | **0** |
-| without capabilities | 0 | 0 | 4 | 24 | 0 | 1 | **29** |
-| without egress | 1340 | 12 | 8 | 75 | 0 | 11 | **1446** |
-| without minimize | 0 | 0 | 0 | 0 | 0 | 0 | **0** |
-| without dlp | 0 | 0 | 0 | 0 | 0 | 0 | **0** |
-| without limits | 0 | 0 | 0 | 0 | 0 | 0 | **0** |
-| without output | 0 | 0 | 0 | 0 | 0 | 0 | **0** |
-| without minimize + output | 0 | 0 | 2 | 12 | 0 | 1 | **15** |
-| without egress + minimize | 0 | 2 | 0 | 0 | 0 | 1 | **3** |
-| without egress + dlp + minimize | 1340 | 16 | 8 | 87 | 0 | 11 | **1462** |
-| without provenance + egress | 1340 | 12 | 8 | 75 | 252 | 12 | **1699** |
-| without provenance + egress + limits | 1340 | 12 | 8 | 75 | 337 | 12 | **1784** |
-| every layer off (the naive agent) | 1492 | 16 | 13 | 108 | 343 | 13 | **1985** |
+| configuration | spelling | costumes | direct | mutation | corpus | memory | sequence | total |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| **all layers** | 0 | 0 | 0 | 0 | 0 | 0 | 0 | **0** |
+| without normalize | 0 | 0 | 0 | 0 | 0 | 0 | 0 | **0** |
+| without provenance | 0 | 0 | 0 | 0 | 0 | 0 | 0 | **0** |
+| without capabilities | 0 | 0 | 4 | 28 | 28 | 0 | 1 | **61** |
+| without egress | 1340 | 12 | 8 | 87 | 66 | 0 | 11 | **1524** |
+| without minimize | 0 | 0 | 0 | 0 | 0 | 0 | 0 | **0** |
+| without dlp | 0 | 0 | 0 | 0 | 0 | 0 | 0 | **0** |
+| without limits | 0 | 0 | 0 | 0 | 0 | 0 | 0 | **0** |
+| without output | 0 | 0 | 0 | 0 | 0 | 0 | 0 | **0** |
+| without minimize + output | 0 | 0 | 2 | 14 | 14 | 0 | 1 | **31** |
+| without egress + minimize | 0 | 2 | 0 | 0 | 0 | 0 | 1 | **3** |
+| without egress + dlp + minimize | 1340 | 16 | 8 | 101 | 68 | 0 | 11 | **1544** |
+| without provenance + egress | 1340 | 12 | 8 | 87 | 66 | 252 | 12 | **1777** |
+| without provenance + egress + limits | 1340 | 12 | 8 | 87 | 66 | 337 | 12 | **1862** |
+| every layer off (the naive agent) | 1492 | 16 | 13 | 135 | 71 | 343 | 13 | **2083** |
 
 What this says, and does not:
 
 - **With every layer on, nothing got through.** Taken alone that is weak evidence, which is why
-  the next two instruments exist. The attacks are not toothless: with egress off, 1,446 of the
-  same attacks land; with everything off, 1,985.
+  the next two instruments exist. The attacks are not toothless: with egress off, 1,524 of the
+  same attacks land; with everything off, 2,083.
 - **Egress and capabilities are the decisive layers** against destination and privilege attacks.
   **Provenance** is decisive for memory poisoning once egress is out of the way (252 → 0), and
   **limits** is worth 85 more memory findings (a poisoned note that triggers a *second* outbound
   call). **Minimize + output** are what stop the reply from disclosing the secret. **DLP** is what
-  stops the canary reaching a hostile host when egress and minimize are both gone (1,462 →
+  stops the canary reaching a hostile host when egress and minimize are both gone (1,544 →
   3 findings, none of them the secret).
 - **`normalize`, `dlp`, `minimize`, `output` and `limits` each show 0 when removed alone.** They
   are redundant *against this attack set*: another layer already stops every attack that reaches
@@ -115,6 +121,10 @@ What this says, and does not:
   keywords, so normalization matters less here than it would with a model that reads through
   homoglyphs and zero-width splits. The columns are not a ranking of how much each layer is worth
   in production.
+- **`corpus` tracks `mutation` with a third of the trials.** Wherever `mutation` found something,
+  `corpus` found most or all of it on a fraction of the budget: all 28 of `mutation`'s findings
+  with `capabilities` off, 66 of 87 (76%) with `egress` off -- the same advantage
+  `adaptive_vs_blind.py` measures directly, now visible inside the siege itself.
 
 ### 2. Mutation testing: is "0 findings" a result, or a weak test?
 
@@ -141,7 +151,9 @@ attacks (or in the detector). Each mutant is paired with a clean control.
 
 12 of 12 seeded defects found; the control (the real quarantine, with the planner made to act on
 stored notes) holds against all 406 scenarios. The seven egress defects are the classic ones,
-the ones in real CVEs.
+the ones in real CVEs. (The sweep also runs `corpus` against every mutant; it never adds a new
+kill here -- these are destination- and DLP-shaped defects, and `spelling`/`costumes`/`sequence`
+already reach them.)
 
 ### 3. Fuzzing the whole agent: 500,000 random messages, 0 violations
 
@@ -182,6 +194,24 @@ grid with a budget of 40, 100 seeds:
 Within the same budget it lands 7-8× as many findings as random order on a sparse hole. It does
 not make the first hit any likelier than chance: it learns after, not before.
 
+### 6. The engine generalized: the same claim, for `adaptive_corpus`
+
+`adaptive_memory` only works against a target with persistent memory. `adaptive_corpus` runs the
+identical search over single-shot attacks instead (seeds × the mutation engine's own mutators), so
+it works against *any* adapter -- `campaigns/demo_adaptive_corpus.yaml` proves it end to end
+against `echo`, which has no memory at all. `tools/eval/adaptive_eval.py` now measures it the same
+way it measures the memory engine, on synthetic oracles renamed to match the new axes (budget 8 of
+32, 300 instances):
+
+| the target's weakness | declared | random | adaptive |
+|---|---|---|---|
+| one seed is vulnerable | 2.13 findings | 1.83 | **3.77** (finds one in 99% of runs) |
+| one mutator is vulnerable | 1.00 | 0.98 | **1.59** |
+| no structure at all | 0.94 | 0.90 | 0.93 |
+
+The same shape as the memory engine's table above: roughly double the findings where a pattern
+exists to learn, parity where there isn't one.
+
 ## What this found in chaos-agents itself
 
 The point of attacking something hard is what breaks. Five real defects, all fixed, all with
@@ -218,7 +248,7 @@ regression tests:
   built so the planner's behaviour does not matter, but that is a design argument until it is
   measured against one. (The OpenAI-backed variant planned next is for exactly that: a real
   model proposes calls, the same gate decides.)
-- **Zero findings is not proof.** The siege is 2,509 attacks, the fuzz 500,000 messages. By the
+- **Zero findings is not proof.** The siege is 2,713 attacks, the fuzz 500,000 messages. By the
   rule of three the true failure rate of *these message shapes* is below about 1 in 170,000 at
   95% confidence. Nothing is claimed beyond them.
 - **DNS rebinding and redirects are not modelled**, because there is no network. A real egress

@@ -95,7 +95,7 @@ policy to score any target, as one number (v1) or a graded security profile (v2)
 - **Model Provider** — generates mutated payloads and, optionally, judges. Default: **Ollama**, local and free.
 - **Target Adapter** — connects to the system under test. **generic_proxy** intercepts any OpenAI/Ollama-shaped chat call, so most frameworks need zero adapter code; **ollama_chat** points straight at a local model that holds a conversation (no framework wiring), and it carries state, so **multi-turn** attacks that build across turns work against it; **mcp_fault** is a fault-injecting MCP proxy that poisons, errors, delays or mangles tool results on their way back to an agent — and goes deeper with **tool-description poisoning** (injection in the `tools/list` reply, "line jumping") and **poisoning chains** (per-tool faults so one tool's output steers the agent into another); **a2a** attacks an Agent-to-Agent agent over JSON-RPC, including **cross-agent trust abuse** and **identity spoofing** (see [examples/mcp_a2a_scenarios](examples/mcp_a2a_scenarios)); **chatgpt_app** attacks a ChatGPT App (an MCP server) by calling its tools with hostile arguments; **sandbox** is a contained environment for computer-use agents — a local model acts in a small world where the attack is planted in a page it reads, exfiltration is recorded but never really sent, and the sandbox detects compromise from ground truth. **toolbot** is a deterministic, model-free tool-using agent (it holds a confidential document, has persistent memory, and does what the message says), built so the policy, taint, memory and replay features run end to end for free. **fortress** is its opposite: the same kind of agent behind eight enforced, switchable defence layers, so there is something hard to attack (see [docs/FORTRESS.md](docs/FORTRESS.md)).
 - **Observation** — the stage between agent and judge. An agent doesn't only leak by *saying* the secret; it leaks by *doing* — calling `send_email(body=secret)`, `http_post(url, data=secret)`. An Observation captures the whole invocation (reply, every tool call, errors, latency), and the judge rules on that, so a canary that left through a tool argument is caught even when the reply looks clean. An adapter that only has text keeps returning a string; it's wrapped into an Observation automatically.
-- **Chaos Vector** — where the attacks come from. **static_corpus** replays a fixed payload list; **llm** has a model write fresh attacks from a goal you state; **multiturn** escalates over several turns; **indirect** buries the attack inside tool output the agent trusts; **mutation** fuzzes — it multiplies a few seeds into many variants (encoding, authority framing, structure, language) for a stress test, zero-cost and model-free. **memory_poison** runs cross-session scenarios — an instruction planted in one session, an innocent request in another — with a control run so memory is never blamed for what the agent does on its own; **adaptive_memory** runs that same kind of scenario but chooses its next attempt from what the last one revealed, over a declared grid of techniques, instead of a fixed list worked end to end. All free on Ollama, all pointable at your own agent.
+- **Chaos Vector** — where the attacks come from. **static_corpus** replays a fixed payload list; **llm** has a model write fresh attacks from a goal you state; **multiturn** escalates over several turns; **indirect** buries the attack inside tool output the agent trusts; **mutation** fuzzes — it multiplies a few seeds into many variants (encoding, authority framing, structure, language) for a stress test, zero-cost and model-free. **memory_poison** runs cross-session scenarios — an instruction planted in one session, an innocent request in another — with a control run so memory is never blamed for what the agent does on its own; **adaptive_memory** runs that same kind of scenario but chooses its next attempt from what the last one revealed, over a declared grid of techniques, instead of a fixed list worked end to end; **adaptive_corpus** is the same idea generalized to single-shot attacks (seeds × the mutation engine's own mutators), so it runs against any adapter, memory or not. All free on Ollama, all pointable at your own agent.
 - **Judge** — decides pass/fail/severity. **rule-based** (regex / forbidden-substring, no model call) for clean cases; **llm** — a local model reads a plain-English policy and catches the fuzzier failures (paraphrased leaks, unsafe compliance) the rules miss, still free on Ollama. A campaign's **`policy:`** block wraps whichever judge you pick, so tool calls are checked against what the agent is allowed to do as well (see [Beyond the reply](#beyond-the-reply-judging-what-the-agent-did)).
 
 ## Verified against real agents, not just a mock
@@ -250,7 +250,7 @@ adapter:                        # THE TARGET — one of: echo, parrot, generic_p
     upstream_url: "http://localhost:11434/api/chat"
 
 vector:                         # THE ATTACK — one of: static_corpus, llm, multiturn,
-  plugin: static_corpus         #   indirect, mutation, memory_poison, adaptive_memory
+  plugin: static_corpus         #   indirect, mutation, memory_poison, adaptive_memory, adaptive_corpus
   config: {}
 
 judge:                          # THE VERDICT — one of: rule_based, llm
@@ -483,6 +483,17 @@ that first hit above chance when there is no evidence yet. These claims are asse
 the [fortress](docs/FORTRESS.md) -- 17 holes in a 406-candidate grid, budget 40 -- it lands
 ~11 findings to random order's ~1.5 (`python tools/fortress/adaptive_vs_blind.py`).
 
+**It also works against any target, not just a memory-poisoning one.** `adaptive_memory` needs
+`reset_memory()`/`observe_in_session()` -- most adapters don't have them. `adaptive_corpus` runs
+the identical per-part search over single-shot attacks instead: the grid is seeds × the mutation
+engine's own mutators (23 of them -- encodings, authority framing, structure, language, plus
+homoglyphs, Unicode tag smuggling, payload splitting, context flooding, roleplay framing and
+composed encodings), so it works against an adapter as plain as `echo`
+(`chaos-agents run campaigns/demo_adaptive_corpus.yaml`). The same measurement
+(`python tools/eval/adaptive_eval.py`) shows the identical shape on the generalized engine's own
+synthetic oracles: ~2x the findings where one seed or one mutator is the hole, parity where
+there's no structure.
+
 ### The fortress: a target worth attacking
 
 `toolbot` is an agent with no defences. `fortress` is the other half: the same kind of agent
@@ -494,20 +505,23 @@ enforcement, not detection.
 
 ```bash
 chaos-agents run campaigns/demo_fortress.yaml    # exits 0: every attack held
-python tools/fortress/siege.py                   # ~2,500 attacks x 18 configurations (layers switched off)
+python tools/fortress/siege.py                   # ~2,700 attacks x 18 configurations (layers switched off)
 python tools/fortress/mutants.py                 # seed known defects: does the attack suite find them?
 python tools/fortress/fuzz.py --n 500000         # random messages, properties checked directly
 python tools/fortress/range.py --open            # a local console to attack it by hand (docs/FORTRESS.md)
 ```
 
 With every layer on, nothing got through -- and that is only worth something if the attacks can
-find things, so it is checked three ways: the same attacks land when layers are removed (1,446
-findings without egress, 1,985 with everything off), **12 of 12 known defects seeded into the
+find things, so it is checked three ways: the same attacks land when layers are removed (1,524
+findings without egress, 2,083 with everything off), **12 of 12 known defects seeded into the
 defences are found** by the attack suite, and 500,000 fuzzed messages violated none of five
-properties checked without the policy engine. Attacking it also found five real defects in
-chaos-agents itself (a destination parser that failed open, multi-turn attacks judged on reply
-text only, a policy that could not say "https only", ...), all fixed. Full method, numbers and
-limits: [docs/FORTRESS.md](docs/FORTRESS.md).
+properties checked without the policy engine. The siege's seven families now include
+`adaptive_corpus` itself, budget-capped at a third of its grid: it lands the same findings as
+the exhaustive mutation family at a fraction of the trials (all 28 with `capabilities` off, 66 of
+87 with `egress` off). Attacking it also found five real defects in chaos-agents itself (a
+destination parser that failed open, multi-turn attacks judged on reply text only, a policy that
+could not say "https only", ...), all fixed. Full method, numbers and limits:
+[docs/FORTRESS.md](docs/FORTRESS.md).
 
 ### Attack graph and standards
 
