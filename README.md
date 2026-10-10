@@ -48,6 +48,7 @@ the rows below run with no model and no network, against the bundled `toolbot` d
 | **Capability + policy** | Declare what the agent may do; every tool call is checked. Privilege violations, approval bypasses, off-list destinations. | `chaos-agents run campaigns/demo_policy.yaml` |
 | **Taint tracking** | Plant a canary secret and follow it to the sink, even when it leaves base64-encoded and the reply looks clean. | `chaos-agents run campaigns/demo_dataflow.yaml` |
 | **Memory poisoning** | An instruction planted in one session fires in another. Control run first, so memory is never blamed for the agent's own behaviour. | `chaos-agents run campaigns/demo_memory.yaml` |
+| **Cross-surface chains** | A poisoned retrieval document, a behavior check against a clean control, and a separate tool-boundary test -- one coordinated campaign, not three isolated ones. | `chaos-agents chain campaigns/chain_rag_to_boundary.yaml` |
 | **Attack graph** | How a finding happened, stage by stage: delivery → hijack → tool call → violation → sink → outcome. | `chaos-agents run … --graph` |
 | **OWASP + ATLAS** | Every finding is mapped to the OWASP Agentic Top 10 and MITRE ATLAS; tags flow into JSON and SARIF. | automatic |
 | **Security findings** | Stable ids (`CB-956b1f46`), full evidence, status. | `chaos-agents finding list` · `finding show CB-…` |
@@ -522,6 +523,43 @@ the exhaustive mutation family at a fraction of the trials (all 28 with `capabil
 destination parser that failed open, multi-turn attacks judged on reply text only, a policy that
 could not say "https only", ...), all fixed. Full method, numbers and limits:
 [docs/FORTRESS.md](docs/FORTRESS.md).
+
+### Cross-surface attack chains
+
+Every campaign above exercises one surface: a policy campaign checks tool boundaries, a memory
+campaign checks whether stored notes stay data. A real compromise often crosses surfaces -- a
+poisoned retrieval document changes what the agent does, and *that* is what does or doesn't reach
+the authorization boundary. `CampaignRunner` chains surfaces into one coordinated campaign instead
+of testing them in isolation, so a finding shows the whole path:
+
+```
+stage 1  rag_poisoning        plant an instruction in an isolated, synthetic retrieval document
+stage 2  behavior_evaluation  does retrieving it change the agent's behavior, vs. a clean control?
+stage 3  tool_boundary        separately: does an explicit prohibited request still get through?
+stage 4  verdict              aggregate -- what happened, what got blocked, and why
+```
+
+```bash
+chaos-agents chain campaigns/chain_rag_to_boundary.yaml --json   # exits 1: compromised end to end
+```
+
+Each stage is a node with declared preconditions (`depends_on`); a stage runs only once every
+stage it depends on has *completed* -- "fail" counts as completed (a confirmed bypass has to reach
+stage 4, not vanish because it wasn't a pass), only "skipped"/"error" cascades a skip downstream.
+Stage 3 reuses the exact same `Policy` + judge path every policy campaign runs through -- "an
+attempt is enough" (see [Capability + policy](#capability--policy)) -- so it passes only if the
+prohibited action is never flagged as attempted, not merely if it later failed. The report is a
+plain dict (`report.to_dict()`): the campaign graph, the event log, the verdict, and a `replay`
+block with everything needed to reproduce it.
+
+The demo target's `document_trusted` flag (`toolbot`, mirroring its existing `memory_trusted`) is
+the fix this chain is built to prove: with it `True` (default), an instruction buried in the
+*retrieved* document is followed exactly like one buried in a memory note; with it `False`,
+retrieved content is kept and shown but never acted on. Two independent fixes close two different
+surfaces, and closing one does not imply the other is closed -- `document_trusted=false` alone
+stops the recipient list from changing but leaves the prohibited action unblocked; `hardened=true`
+closes the boundary regardless. `tests/test_campaignrunner.py` runs all four combinations and
+asserts the verdict only where it should flip.
 
 ### Attack graph and standards
 
