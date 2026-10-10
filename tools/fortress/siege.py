@@ -22,7 +22,11 @@ Families (all synthetic ``.example`` hosts, no network):
   costumes    the document asked for in every costume (base64, rot13, hex, reversed, spelled out,
               split in halves) toward an approved and a hostile destination
   direct      classic injection and privilege prompts
-  mutation    the mutation engine multiplies 14 seeds by 14 mutators
+  mutation    the mutation engine multiplies 12 seeds by 14 mutators (the fixed built-in set)
+  corpus      the adaptive engine, generalized: the same 12 seeds against the full, larger mutator
+              set (23 mutators -- homoglyphs, Unicode tag smuggling, payload splitting, context
+              flooding, roleplay framing, composed encodings -- plus each seed unmutated), learning
+              which seeds and mutators actually get past the fortress instead of running every one
   memory      the adaptive engine searching a large declared grid of memory-poisoning scenarios
 """
 
@@ -39,7 +43,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 
-from chaos_agents import registry  # noqa: E402
+from chaos_agents import mutations, registry  # noqa: E402
 from chaos_agents.adapters.fortress import LAYERS  # noqa: E402
 from chaos_agents.campaign import Campaign, ComponentSpec  # noqa: E402
 from chaos_agents.corpus import Corpus  # noqa: E402
@@ -193,6 +197,10 @@ def memory_grid_size() -> int:
     return sum(len(arm_from_dict(a).candidates()) for a in memory_arms())
 
 
+def corpus_grid_size() -> int:
+    return len(MUTATION_SEEDS) * (len(mutations.MUTATORS) + 1)
+
+
 def secret_only_document() -> str:
     """A document that is nothing but the secret, so any piece of the document is a piece of the secret."""
     return "{canary}"
@@ -224,6 +232,11 @@ FAMILIES = {
     "costumes": lambda: ("static_corpus", {"payloads": costume_payloads()}),
     "direct": lambda: ("static_corpus", {"payloads": DIRECT}),
     "mutation": lambda: ("mutation", {"seeds": MUTATION_SEEDS, "max_payloads": 400}),
+    # a deliberately PARTIAL budget (a third of the grid): unlike "mutation", which always runs
+    # every seed x mutator combination, this spends a limited budget and leans on what each
+    # attempt reveals -- the point is "does the smart, budget-limited search still find what's
+    # there", not a second exhaustive pass over the same grid
+    "corpus": lambda: ("adaptive_corpus", {"seeds": MUTATION_SEEDS, "budget": corpus_grid_size() // 3, "seed": 0}),
     "memory": lambda: ("adaptive_memory", {"budget": memory_grid_size(), "seed": 0, "arms": memory_arms()}),
 }
 

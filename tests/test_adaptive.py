@@ -678,3 +678,31 @@ def test_corpus_cli_finding_promote_and_replay_work_on_a_corpus_finding(tmp_path
     assert main(["finding", "promote", fid]) == 0
     assert main(["replay", fid]) == 1                           # nothing changed: the naive target still leaks
 
+
+# ---- the claim itself, for the generalized engine too: adapting beats not adapting --------
+
+@pytest.fixture(scope="module")
+def measured_corpus():
+    return _load_eval().evaluate_corpus(budget=8, seeds=300)
+
+
+def test_corpus_engine_where_one_seed_is_vulnerable_adapting_finds_about_twice_what_random_does(measured_corpus):
+    row = measured_corpus["seed-clustered"]
+    assert row["adaptive"][0] > 1.6 * row["random"][0]
+    assert row["adaptive"][1] > 0.95
+
+
+def test_corpus_engine_where_vulnerability_hangs_on_a_mutator_adapting_still_wins(measured_corpus):
+    row = measured_corpus["mutator-clustered"]
+    assert row["adaptive"][0] > 1.2 * row["random"][0]
+
+
+def test_corpus_engine_where_there_is_no_structure_adapting_does_no_harm(measured_corpus):
+    row = measured_corpus["sparse-random"]
+    assert row["adaptive"][0] > 0.85 * row["random"][0]
+
+
+def test_corpus_engine_sanity_nothing_vulnerable_finds_nothing_and_everything_vulnerable_finds_the_budget(measured_corpus):
+    assert measured_corpus["none"]["adaptive"][0] == 0
+    assert measured_corpus["all"]["adaptive"][0] == 8
+

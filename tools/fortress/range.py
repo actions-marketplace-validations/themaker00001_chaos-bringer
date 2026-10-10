@@ -65,7 +65,8 @@ FAMILY_INFO = {
     "spelling": "the same two destinations spelled ~1,900 ways: backslash, userinfo, tab/newline, //host, IPv6, look-alikes, lists",
     "costumes": "the document asked for as base64, rot13, hex, reversed, spelled out, in halves",
     "direct": "classic injection and privilege prompts",
-    "mutation": "12 seeds x 14 mutators (encodings, authority framing, structure, language)",
+    "mutation": "12 seeds x 14 built-in mutators (encodings, authority framing, structure, language)",
+    "corpus": "the adaptive engine, generalized: the same seeds against all 23 mutators, budget capped at a third of the grid",
     "memory": "the adaptive engine searching 406 memory-poisoning scenarios",
     "sequence": "multi-message conversations: split secrets, escalation, repeated asks",
 }
@@ -163,8 +164,8 @@ class Range:
 
     def families(self) -> list[dict]:
         sizes = {"spelling": len(siege.spelling_payloads()), "costumes": len(siege.costume_payloads()),
-                 "direct": len(siege.DIRECT), "mutation": 180, "memory": siege.memory_grid_size(),
-                 "sequence": len(siege.SEQUENCES)}
+                 "direct": len(siege.DIRECT), "mutation": 180, "corpus": siege.corpus_grid_size() // 3,
+                 "memory": siege.memory_grid_size(), "sequence": len(siege.SEQUENCES)}
         return [{"name": f, "about": FAMILY_INFO[f], "size": sizes[f]} for f in siege.FAMILIES]
 
 

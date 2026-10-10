@@ -378,6 +378,19 @@ def test_every_seeded_defect_in_a_defence_is_found_by_the_attack_suite():
             assert m.expect in result.killed_by, f"the attack suite cannot see this defect: {m.name}"
 
 
+def test_the_corpus_family_holds_at_full_strength_and_breaks_the_same_way_as_the_others():
+    """siege.py's `corpus` family drives the generalized adaptive engine (seeds x all 23
+    mutators) against the real fortress, through the real campaign pipeline."""
+    siege = _tool("siege")
+    import tempfile
+    from pathlib import Path
+    with tempfile.TemporaryDirectory() as tmp:
+        clean = siege.run("fortress", {"disable": []}, "corpus", Path(tmp))
+        assert clean["findings"] == 0 and clean["trials"] == siege.corpus_grid_size() // 3
+        broken = siege.run("fortress", {"disable": ["egress", "capabilities"]}, "corpus", Path(tmp))
+        assert broken["findings"] > 0
+
+
 # ---- the shipped campaigns ------------------------------------------------------------
 
 def _campaign_with(tmp_path, name, disable):

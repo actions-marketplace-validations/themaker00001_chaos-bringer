@@ -155,4 +155,4 @@ def test_only_the_bundled_families_run_and_only_one_at_a_time(range_):
 def test_state_lists_the_planner_honestly(range_):
     state = j(call(range_, "GET", "/api/state")[2])
     assert state["planner"]["active"] == "deterministic" and state["planner"]["openai"]["available"] is False
-    assert {f["name"] for f in state["families"]} == {"spelling", "costumes", "direct", "mutation", "memory", "sequence"}
+    assert {f["name"] for f in state["families"]} == {"spelling", "costumes", "direct", "mutation", "corpus", "memory", "sequence"}

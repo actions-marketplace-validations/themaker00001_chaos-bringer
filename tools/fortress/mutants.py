@@ -213,7 +213,7 @@ class Result:
         return bool(self.killed_by)
 
 
-FAMILIES = ["spelling", "costumes", "direct", "mutation", "memory", "sequence"]
+FAMILIES = ["spelling", "costumes", "direct", "mutation", "corpus", "memory", "sequence"]
 
 
 def _document() -> dict:
