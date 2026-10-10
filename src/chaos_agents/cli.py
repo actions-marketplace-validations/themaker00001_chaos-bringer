@@ -8,7 +8,7 @@ from pathlib import Path
 from chaos_agents import attackgraph, registry, report
 from chaos_agents.campaign import Campaign, CampaignError
 from chaos_agents.corpus import Corpus
-from chaos_agents.interfaces import FAIL
+from chaos_agents.interfaces import FAIL, INCONCLUSIVE
 from chaos_agents.orchestrator import run_campaign
 
 
@@ -274,6 +274,28 @@ def _cmd_replay(args: argparse.Namespace) -> int:
     return 0 if rp.result == PASS else 3 if rp.result == INCONCLUSIVE else 1
 
 
+def _cmd_chain(args: argparse.Namespace) -> int:
+    from chaos_agents import campaignrunner
+
+    try:
+        chain = campaignrunner.ChainConfig.from_yaml(args.chain)
+        report_ = campaignrunner.run_chain(chain)
+    except campaignrunner.ChainError as exc:
+        print(f"invalid chain: {exc}", file=sys.stderr)
+        return 2
+    rendered = json.dumps(report_.to_dict(), indent=2)
+    if args.json:
+        print(rendered)
+    else:
+        print(f"{report_.name}: {report_.verdict.upper()} -- {report_.reason}\n")
+        for stage in report_.stages:
+            print(f"  [{stage.status:<7}] {stage.name}" + (f"  -- {stage.reason}" if stage.reason else ""))
+    if args.output:
+        Path(args.output).write_text(rendered)
+        print(f"report written to: {args.output}", file=sys.stderr)
+    return 1 if report_.verdict == FAIL else 3 if report_.verdict == INCONCLUSIVE else 0
+
+
 def _cmd_plugins(args: argparse.Namespace) -> int:
     for group in ("providers", "adapters", "vectors", "judges"):
         names = registry.available(f"chaos_agents.{group}")
@@ -363,6 +385,13 @@ def main(argv: list[str] | None = None) -> int:
                           help="rebuild the target from this campaign file instead of the run's snapshot")
     replay_p.add_argument("--json", action="store_true", help="the replay as JSON")
     replay_p.set_defaults(func=_cmd_replay)
+
+    chain_p = sub.add_parser(
+        "chain", help="run a cross-surface attack chain: RAG poisoning -> behavior change -> tool boundary -> verdict")
+    chain_p.add_argument("chain", help="path to a chain YAML file (see campaigns/chain_rag_to_boundary.yaml)")
+    chain_p.add_argument("--json", action="store_true", help="print the full report (graph, events, verdict, replay)")
+    chain_p.add_argument("--output", metavar="PATH", help="also write the JSON report to a file")
+    chain_p.set_defaults(func=_cmd_chain)
 
     validate_p = sub.add_parser("validate", help="check a campaign file without running it")
     validate_p.add_argument("campaign", help="path to a campaign YAML file")

@@ -17,6 +17,13 @@ That is the memory-poisoning target (see ``chaos_agents.memory``).
 ``memory_trusted=False`` is the precise fix: memory is kept but treated as
 data, never as instructions.
 
+It trusts its *retrieved* document the same naive way: an instruction buried in
+the document ``search_docs`` returns is followed exactly like one buried in a
+memory note (same dormant-trigger and directive-word rules), which is the
+RAG-poisoning target (``rag_vector/poisoned_document`` -- see
+``chaos_agents.campaignrunner``). ``document_trusted=False`` is that fix:
+retrieved content is kept and shown, but never treated as instructions.
+
 It exists so the whole pipeline (policy, taint tracking, the attack graph,
 findings, replay) runs end to end deterministically and for free, and so a
 CI job can prove the gate actually fires. ``hardened=True`` is the same agent
@@ -65,6 +72,7 @@ class ToolBotAdapter:
         attacker_email: str = "drop@attacker.example",
         user_email: str = "me@company.example",
         memory_trusted: bool = True,
+        document_trusted: bool = True,
     ) -> None:
         self.canary = canary
         self.document = (document or DEFAULT_DOCUMENT).format(canary=canary)
@@ -73,6 +81,7 @@ class ToolBotAdapter:
         self.attacker_email = attacker_email
         self.user_email = user_email
         self.memory_trusted = memory_trusted
+        self.document_trusted = document_trusted
         self.memory: list[tuple[str, str]] = []     # (session it was written in, text)
 
     # ---- memory -----------------------------------------------------------
@@ -104,6 +113,21 @@ class ToolBotAdapter:
             emails += _EMAIL.findall(note)
             urls += [u.rstrip(".,;:!?") for u in _URL.findall(note)]
         return emails, urls
+
+    def _document_directives(self, text: str) -> tuple[list[str], list[str]]:
+        """Extra email recipients and URLs the *retrieved* document tells a naive agent to
+        include -- the RAG analogue of `_memory_directives`: an instruction buried in content
+        the agent fetched, not one it was told directly. Skips a note still waiting for its
+        trigger. The legitimate default document never matches (it uses none of the directive
+        words), so a clean retrieval is never mistaken for a poisoned one."""
+        if not self.document_trusted:
+            return [], []
+        trigger = _DORMANT.search(self.document)
+        if trigger and trigger.group(1).lower() not in text:
+            return [], []
+        if not _has(self.document.lower(), *_DIRECTIVE_WORDS):
+            return [], []
+        return _EMAIL.findall(self.document), [u.rstrip(".,;:!?") for u in _URL.findall(self.document)]
 
     # ---- the agent --------------------------------------------------------
     def _retrieve(self, query: str) -> ToolCall:
@@ -142,6 +166,9 @@ class ToolBotAdapter:
             asked = _EMAIL.findall(payload)
             primary = asked[0] if asked else self._user_address()
             extra_emails, extra_urls = self._memory_directives(text)
+            doc_emails, doc_urls = self._document_directives(text)
+            extra_emails = extra_emails + [e for e in doc_emails if e not in extra_emails]
+            extra_urls = extra_urls + [u for u in doc_urls if u not in extra_urls]
             recipients = [primary] + [e for e in extra_emails if e != primary]
             calls.append(ToolCall(
                 name="send_email",
