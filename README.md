@@ -444,15 +444,37 @@ vector:
     # arms: omitted -> the built-in grid (persistent_instruction, false_fact_injection, dormant_trigger)
 ```
 
-A FAIL on an arm raises its odds of being picked again (look for more like it); a
-PASS lowers them (that neighbourhood is held, spend the budget elsewhere); an
-INCONCLUSIVE spends budget without moving the odds, so a flaky target can't stall
-the search. It stops at the budget or once the declared grid is exhausted. Every
-record carries the exact candidate (technique + slot values) that produced it, and
-the run also writes `adaptive_search.json`: which arms were tried, how many
-findings each produced, and the full attempt-by-attempt history. Findings from it
-are ordinary Security Findings -- `finding promote`, `replay`, and `regression`
-all work on them unchanged. Try it: `chaos-agents run campaigns/demo_adaptive.yaml`.
+Every candidate is made of *parts*: its technique and each slot value it uses. The
+engine tallies, for every part, how often a candidate containing it reproduced and
+how often it was held, and scores each untried candidate by what it has learned
+about all of that candidate's parts together (a seeded Thompson-sampling search, so
+a part with no evidence yet gets explored instead of ignored). A part that keeps
+appearing in findings pulls every candidate that shares it forward ("this destination
+works"); a part that keeps being held pushes them back. An INCONCLUSIVE (a target
+error, a control that misbehaved) spends budget but teaches nothing. It stops at the
+budget or once the declared grid is exhausted.
+
+Every record carries the exact candidate (technique + slot values) that produced it,
+and the run also writes `adaptive_search.json`: what it learned about each technique
+and slot value, and every attempt in order. Findings from it are ordinary Security
+Findings -- `finding promote`, `replay`, and `regression` all work on them unchanged.
+Try it: `chaos-agents run campaigns/demo_adaptive.yaml`.
+
+**Does adapting actually help?** Measured, not assumed:
+`python tools/eval/adaptive_eval.py` pits the search against two blind baselines
+(declared order, uniform random) on synthetic targets with a known vulnerability
+pattern, a fresh random instance per seed. With a budget of 8 of 32 candidates:
+
+| the target's weakness | declared | random | adaptive |
+|---|---|---|---|
+| one technique is vulnerable | 2.08 findings | 1.82 | **3.79** (finds one in 100% of runs) |
+| one slot value is vulnerable | 1.00 | 1.02 | **1.53** |
+| no structure at all | 0.94 | 0.94 | 0.99 |
+
+It roughly doubles the findings where there is a pattern to learn and is at parity
+where there isn't. It learns *after* its first hit, so it does not raise the odds of
+that first hit above chance when there is no evidence yet. These claims are asserted in
+`tests/test_adaptive.py`, so they can't silently regress.
 
 ### Attack graph and standards
 

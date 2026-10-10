@@ -99,6 +99,14 @@ def search(budget=10, seed=0, arms=None) -> AdaptiveSearch:
     return AdaptiveSearch(arms or [ARM], budget=budget, seed=seed)
 
 
+def drain(s: AdaptiveSearch, status="pass") -> list[Candidate]:
+    seen = []
+    while (c := s.propose()) is not None:
+        seen.append(c)
+        s.update(status(c) if callable(status) else status)
+    return seen
+
+
 def test_a_search_needs_at_least_one_arm_and_a_positive_budget():
     with pytest.raises(ValueError, match="at least one arm"):
         AdaptiveSearch([], budget=5)
@@ -110,116 +118,168 @@ def test_propose_then_update_is_the_only_valid_order():
     s = search()
     with pytest.raises(RuntimeError, match="no candidate outstanding"):
         s.update("pass")
-    c = s.propose()
+    s.propose()
     with pytest.raises(RuntimeError, match="called again before"):
         s.propose()
-    s.update("pass")           # now fine
+    s.update("pass")
     assert s.used == 1
 
 
 def test_propose_stops_at_the_budget():
     s = search(budget=2)
-    assert s.propose() is not None
-    s.update("pass")
-    assert s.propose() is not None
-    s.update("pass")
-    assert s.propose() is None and s.done()
+    assert len(drain(s)) == 2 and s.propose() is None and s.done()
 
 
 def test_propose_stops_when_the_declared_grid_is_exhausted_before_the_budget():
     s = search(budget=100)           # the grid only has 4 candidates
-    for _ in range(4):
-        assert s.propose() is not None
-        s.update("pass")
-    assert s.propose() is None and s.done()
-    assert s.used == 4
+    assert len(drain(s)) == 4 and s.used == 4 and s.done()
 
 
 def test_every_candidate_in_the_grid_is_tried_exactly_once_given_enough_budget():
-    s = search(budget=100)
-    seen = []
-    while (c := s.propose()) is not None:
-        seen.append(c.id)
-        s.update("pass")
-    assert sorted(seen) == sorted(c.id for c in ARM.candidates())
+    seen = drain(search(budget=100))
+    assert sorted(c.id for c in seen) == sorted(c.id for c in ARM.candidates())
 
 
 def test_coverage_counts_arms_with_at_least_one_attempt():
     two_arms = [ARM, Arm(technique="persistent_instruction", poison="{x}", trigger="y", slots={"x": ("v",)})]
     s = search(budget=1, arms=two_arms)
     assert s.coverage == 0.0
-    s.update(s.propose() and "pass" or "pass")
+    s.propose(); s.update("pass")
     assert s.coverage == 0.5
 
 
-# ---- AdaptiveSearch: the adaptiveness itself ---------------------------------------
+# ---- AdaptiveSearch: it really does learn -------------------------------------------
 
-def test_a_fail_raises_that_arms_weight_and_a_pass_lowers_it():
-    s = search()
-    c = s.propose()
-    s.update("fail")
-    assert s.attempts[-1].weight_after == pytest.approx(2.5)
-    c = s.propose()
-    s.update("pass")
-    assert s.attempts[-1].weight_after == pytest.approx(2.5 * 0.65)
+def test_two_arms_sharing_a_technique_are_credited_separately():
+    """A regression test: feedback used to be filed under the *first* arm with a matching
+    technique name, so a second phrasing of the same technique was never credited."""
+    a = Arm(technique="persistent_instruction", poison="phrasing A {x}", trigger="t", slots={"x": ("a1", "a2")})
+    b = Arm(technique="persistent_instruction", poison="phrasing B {x}", trigger="t", slots={"x": ("b1", "b2")})
+    s = search(budget=4, arms=[a, b])
+    drain(s, lambda c: "fail" if c.poison.startswith("phrasing B") else "pass")
+    arms = s.summary()["arms"]
+    assert (arms[0]["tried"], arms[0]["found"]) == (2, 0)
+    assert (arms[1]["tried"], arms[1]["found"]) == (2, 2)
 
 
-def test_inconclusive_spends_budget_but_does_not_move_the_weight():
+def test_candidates_from_different_arms_have_different_ids_even_with_identical_slots():
+    a = Arm(technique="persistent_instruction", poison="A {x}", trigger="t", slots={"x": ("v",)})
+    b = Arm(technique="persistent_instruction", poison="B {x}", trigger="t", slots={"x": ("v",)})
+    ids = {c.id for i, arm in enumerate([a, b]) for c in arm.candidates(i)}
+    assert len(ids) == 2
+
+
+SLOTS_ARM = Arm(technique="persistent_instruction", poison="{x} {y}", trigger="t",
+                slots={"x": ("x0", "x1", "x2", "x3"), "y": ("y0", "y1", "y2", "y3")})
+
+
+def second_pick_shares(first_status: str, part: str, seeds=300) -> float:
+    """How often the 2nd candidate shares the first one's x value, after the first one's `first_status`."""
+    shared = 0
+    for seed in range(seeds):
+        s = AdaptiveSearch([SLOTS_ARM], budget=2, seed=seed)
+        first = s.propose(); s.update(first_status)
+        second = s.propose()
+        shared += second.slots[part] == first.slots[part]
+    return shared / seeds
+
+
+def test_a_finding_pulls_candidates_that_share_a_slot_value_forward():
+    # After one finding, 3 of the 15 untried candidates share its x value: blind chance 20%.
+    # One observation is weak evidence, so the pull is modest (measured ~30%), but it is real.
+    assert second_pick_shares("fail", "x") > 0.26
+
+
+def test_a_held_candidate_pushes_candidates_that_share_its_slot_value_back():
+    # measured ~11% against the same 20% blind chance
+    assert second_pick_shares("pass", "x") < 0.15
+
+
+def test_unseen_values_are_explored_before_known_ones_are_repeated():
+    # four picks that are all held: blind chance of four *different* x values is ~14%; measured ~35%
+    novel = 0
+    for seed in range(200):
+        s = AdaptiveSearch([SLOTS_ARM], budget=4, seed=seed)
+        xs = set()
+        while (c := s.propose()) is not None:
+            xs.add(c.slots["x"]); s.update("pass")
+        novel += len(xs) == 4
+    assert novel / 200 > 0.28
+
+
+def test_the_first_attempt_has_every_part_novel_and_later_ones_fewer():
+    s = AdaptiveSearch([SLOTS_ARM], budget=3, seed=0)
+    drain(s)
+    novel = [a["novel_parts"] for a in s.summary()["attempts"]]
+    assert novel[0] == 3 and novel[-1] < novel[0]             # arm + x + y, all new at first
+
+
+def test_inconclusive_spends_budget_but_teaches_nothing():
     s = search(budget=3)
-    s.propose()
-    s.update("inconclusive")
-    assert s.used == 1 and s._states[0].weight == 1.0
-    assert s.attempts[-1].weight_before == s.attempts[-1].weight_after == 1.0
-
-
-def test_weight_is_clamped_so_it_never_runs_away_or_dies():
-    s = search(budget=1000, arms=[ARM, Arm(technique="persistent_instruction", poison="{x}", trigger="y",
-                                           slots={"x": tuple(f"v{i}" for i in range(60))})])
-    for _ in range(4):                                    # exhaust ARM with fails
-        s.propose(); s.update("fail")
-    assert s._states[0].weight <= 50.0
-    s2 = AdaptiveSearch([ARM], budget=1000, seed=1)
-    for _ in range(4):
-        s2.propose(); s2.update("pass")
-    assert s2._states[0].weight >= 0.05
-
-
-def test_a_promising_arm_is_favoured_over_many_draws():
-    """Not a statistical test: it feeds back 'fail' for one technique and 'pass'
-    for the other regardless of draw order, and checks the weight at the end
-    reflects that history -- which is what actually drives the bias."""
-    lucky = Arm(technique="persistent_instruction", poison="{x}", trigger="y", slots={"x": ("1", "2", "3", "4")})
-    held = Arm(technique="false_fact_injection", poison="{x}", trigger="y", slots={"x": ("1", "2", "3", "4")})
-    s = AdaptiveSearch([lucky, held], budget=100, seed=0)
-    while (c := s.propose()) is not None:
-        s.update("fail" if c.technique == "persistent_instruction" else "pass")
-    lucky_state = next(st for st in s._states if st.arm.technique == "persistent_instruction")
-    held_state = next(st for st in s._states if st.arm.technique == "false_fact_injection")
-    assert lucky_state.weight > 1.0 > held_state.weight
-
-
-def test_summary_reports_budget_coverage_findings_and_every_attempt():
-    s = search(budget=2)
-    s.propose(); s.update("fail")
-    s.propose(); s.update("pass")
+    s.propose(); s.update("inconclusive")
     summ = s.summary()
-    assert summ["budget"] == 2 and summ["used"] == 2 and summ["findings"] == 1
-    assert summ["coverage"] == 1.0
-    assert len(summ["attempts"]) == 2 and summ["attempts"][0]["status"] == "fail"
-    assert json.dumps(summ)   # every field is JSON-serialisable
+    assert s.used == 1 and summ["findings"] == 0 and summ["slots"] == []
+    assert summ["arms"][0]["found"] == 0 and summ["arms"][0]["rate"] == 0.5
 
 
-def test_seed_zero_is_reproducible_and_a_different_seed_can_differ():
-    arms = [a_ for a_ in adaptive.DEFAULT_ARMS]
-    order_a = []
-    s = AdaptiveSearch(arms, budget=9, seed=0)
-    while (c := s.propose()) is not None:
-        order_a.append(c.id); s.update("pass")
-    order_b = []
-    s = AdaptiveSearch(arms, budget=9, seed=0)
-    while (c := s.propose()) is not None:
-        order_b.append(c.id); s.update("pass")
-    assert order_a == order_b
+def test_summary_says_what_was_learned_about_each_technique_and_slot_value():
+    s = AdaptiveSearch([SLOTS_ARM], budget=6, seed=3)
+    drain(s, lambda c: "fail" if c.slots["x"] == "x2" else "pass")
+    summ = s.summary()
+    assert summ["findings"] == sum(1 for a in summ["attempts"] if a["status"] == "fail")
+    by_value = {(r["slot"], r["value"]): r for r in summ["slots"]}
+    for (slot, value), row in by_value.items():
+        assert row["found"] <= row["tried"] and 0 < row["rate"] < 1
+    if ("x", "x2") in by_value:                               # when x2 was tried it is the best-rated x value
+        assert by_value[("x", "x2")]["found"] == by_value[("x", "x2")]["tried"]
+    assert json.dumps(summ)                                   # every field is JSON-serialisable
+
+
+def test_seed_zero_is_reproducible_and_different_seeds_differ():
+    def order(seed):
+        return [c.id for c in drain(AdaptiveSearch(list(adaptive.DEFAULT_ARMS), budget=9, seed=seed))]
+    assert order(0) == order(0)
+    assert len({tuple(order(s)) for s in range(10)}) > 1
+
+
+# ---- the claim itself: adapting beats not adapting where there is structure --------------
+
+def _load_eval():
+    import importlib.util
+    from pathlib import Path
+
+    path = Path(__file__).resolve().parent.parent / "tools" / "eval" / "adaptive_eval.py"
+    spec = importlib.util.spec_from_file_location("adaptive_eval", path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+@pytest.fixture(scope="module")
+def measured():
+    return _load_eval().evaluate(budget=8, seeds=300)
+
+
+def test_where_one_technique_is_vulnerable_adapting_finds_about_twice_what_random_does(measured):
+    row = measured["arm-clustered"]
+    assert row["adaptive"][0] > 1.6 * row["random"][0]
+    assert row["adaptive"][1] > 0.95                          # and finds something in (almost) every run
+
+
+def test_where_vulnerability_hangs_on_a_slot_value_adapting_still_wins(measured):
+    """This case scored 0% before the search learned per slot value, not just per technique."""
+    row = measured["slot-clustered"]
+    assert row["adaptive"][0] > 1.2 * row["random"][0]
+
+
+def test_where_there_is_no_structure_adapting_does_no_harm(measured):
+    row = measured["sparse-random"]
+    assert row["adaptive"][0] > 0.85 * row["random"][0]
+
+
+def test_sanity_nothing_vulnerable_finds_nothing_and_everything_vulnerable_finds_the_budget(measured):
+    assert measured["none"]["adaptive"][0] == 0
+    assert measured["all"]["adaptive"][0] == 8
 
 
 # ---- AdaptiveMemoryVector -----------------------------------------------------------
@@ -227,14 +287,14 @@ def test_seed_zero_is_reproducible_and_a_different_seed_can_differ():
 def test_the_vector_defaults_to_the_builtin_grid():
     v = AdaptiveMemoryVector()
     assert v.search.budget == 6
-    assert {s.arm.technique for s in v.search._states} == {"persistent_instruction", "false_fact_injection",
+    assert {a.technique for a in v.search.arms} == {"persistent_instruction", "false_fact_injection",
                                                             "dormant_trigger"}
 
 
 def test_the_vector_accepts_custom_arms():
     v = AdaptiveMemoryVector(budget=2, arms=[{"technique": "persistent_instruction", "poison": "{x}", "trigger": "y",
                                               "slots": {"x": "v"}}])
-    assert len(v.search._states) == 1
+    assert len(v.search.arms) == 1
 
 
 def test_generate_lists_every_payload_the_grid_could_produce():

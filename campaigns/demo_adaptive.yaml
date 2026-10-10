@@ -1,8 +1,9 @@
 # The adaptive attack engine: generate -> run -> analyze -> pick the next path.
 # No model, no network. Unlike the other memory_poison campaigns, this vector does
 # not decide its whole payload list up front -- it tries one candidate from a
-# declared grid of techniques, sees whether it reproduced, and uses that to bias
-# which technique it tries next (see src/chaos_agents/adaptive.py).
+# declared grid of techniques and slot values, sees whether it reproduced, and uses
+# that to favour candidates built from the parts that keep working (see
+# src/chaos_agents/adaptive.py; python tools/eval/adaptive_eval.py measures it).
 #   chaos-agents run campaigns/demo_adaptive.yaml        # exits 1: the search finds holes
 name: demo-adaptive
 

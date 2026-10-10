@@ -35,35 +35,34 @@ and the poisoned run did not.
             slots:
               recipient: ["audit@attacker.example", "backup@attacker.example"]
 
-The search: each technique is an *arm*. An arm's candidates are every
-combination of its declared slot values, in the order declared -- so the
-search space is reproducible and auditable even before a run happens.
-Choosing the next candidate is a weighted draw across arms that still have
-untried candidates: a FAIL on an arm raises its weight (that neighbourhood is
-promising -- look for more like it), a PASS lowers it (that neighbourhood is
-held -- spend the budget elsewhere), and an INCONCLUSIVE leaves the weight
-alone but still spends budget, so a flaky target can't stall the whole search.
-It stops when the budget runs out or every arm's candidates are exhausted --
-whichever comes first.
+The search. Every candidate is made of *parts*: its technique (its arm) and each
+slot value it uses. The engine keeps a running tally for every part -- how many
+times a candidate containing it reproduced, and how many times it was held -- and
+scores each untried candidate by what it has learned about all of that
+candidate's parts together (a Thompson-sampling Bayesian search, so a part with
+no evidence yet is explored rather than ignored, and the draw is seeded). A part
+that keeps appearing in findings pulls every candidate that shares it forward; a
+part that keeps being held pushes them back. That is what lets it learn "this
+destination value works" or "this technique works" -- and not just the order of
+a list. INCONCLUSIVE (a target error, a control that misbehaved) spends budget
+but teaches nothing. It stops when the budget runs out or the declared grid is
+exhausted, whichever comes first.
 """
 
 from __future__ import annotations
 
 import hashlib
 import itertools
+import math
 import random
 import string
-from dataclasses import dataclass, field
+from collections import Counter
+from dataclasses import dataclass
+from statistics import mean
 from typing import Any
 
 from chaos_agents import taxonomy
 from chaos_agents.memory import CATEGORY, Scenario
-
-# a candidate's chance of being picked is multiplied by this on a fail (look here again)
-# or this on a pass (look elsewhere); clamped so no arm's weight reaches zero or runs away
-_RAISE, _LOWER = 2.5, 0.65
-_MIN_WEIGHT, _MAX_WEIGHT = 0.05, 50.0
-
 
 def _fields(template: str) -> set[str]:
     """Every ``{name}`` placeholder a template actually uses."""
@@ -72,24 +71,29 @@ def _fields(template: str) -> set[str]:
 
 @dataclass(frozen=True)
 class Candidate:
-    """One fully-resolved attack: a technique plus one slot assignment."""
+    """One fully-resolved attack: an arm's technique plus one slot assignment."""
 
     technique: str
     slots: dict[str, str]
     poison: str
     trigger: str
+    arm: int = 0           # which declared arm produced it (two arms may share a technique)
 
     @property
     def id(self) -> str:
-        """A short, stable id for this exact slot assignment (for reports; not a finding id)."""
-        basis = self.technique + "|" + "|".join(f"{k}={v}" for k, v in sorted(self.slots.items()))
+        """A short, stable id for this exact arm + slot assignment (for reports; not a finding id)."""
+        basis = f"{self.arm}|{self.technique}|" + "|".join(f"{k}={v}" for k, v in sorted(self.slots.items()))
         return hashlib.sha1(basis.encode()).hexdigest()[:8]
+
+    def parts(self) -> tuple[tuple, ...]:
+        """What the search learns about: this candidate's arm and each slot value in it."""
+        return (("arm", self.arm),) + tuple(("slot", k, v) for k, v in sorted(self.slots.items()))
 
     def scenario(self) -> Scenario:
         return Scenario(poison=self.poison, trigger=self.trigger, name=self.id, technique=self.technique)
 
     def to_dict(self) -> dict[str, Any]:
-        return {"id": self.id, "technique": self.technique, "slots": dict(self.slots)}
+        return {"id": self.id, "arm": self.arm, "technique": self.technique, "slots": dict(self.slots)}
 
 
 @dataclass(frozen=True)
@@ -122,13 +126,14 @@ class Arm:
             raise ValueError(f"arm {self.technique!r} declares slot(s) {sorted(unused)} "
                              f"that never appear in 'poison' or 'trigger'")
 
-    def candidates(self) -> list[Candidate]:
-        """Every combination of this arm's slot values, in declared order."""
+    def candidates(self, index: int = 0) -> list[Candidate]:
+        """Every combination of this arm's slot values, in declared order. `index`
+        is the arm's position in its campaign, carried on each candidate."""
         names = sorted(self.slots)   # a stable order regardless of a YAML mapping's own order
         out = []
         for combo in itertools.product(*(self.slots[n] for n in names)):
             assignment = dict(zip(names, combo))
-            out.append(Candidate(technique=self.technique, slots=assignment,
+            out.append(Candidate(technique=self.technique, slots=assignment, arm=index,
                                  poison=self.poison.format(**assignment), trigger=self.trigger.format(**assignment)))
         return out
 
@@ -154,88 +159,111 @@ DEFAULT_ARMS: tuple[Arm, ...] = (
 
 
 @dataclass
-class _ArmState:
-    arm: Arm
-    queue: list[Candidate]
-    weight: float = 1.0
-    tried: int = 0
-    found: int = 0
-
-
-@dataclass
 class Attempt:
     """One resolved candidate, kept for the search's own report."""
 
     candidate: Candidate
     status: str                 # pass | fail | inconclusive
-    weight_before: float
-    weight_after: float
+    novel_parts: int            # how many of its parts had never been tried before (0 = pure exploitation)
+
+
+def _logit(p: float) -> float:
+    p = min(max(p, 1e-9), 1 - 1e-9)
+    return math.log(p / (1 - p))
 
 
 class AdaptiveSearch:
     """Generate -> run -> analyze -> pick the next path, over a declared grid.
 
-    One instance drives one run: call `propose()` to get the next candidate
-    (or None, meaning stop), run it however the caller runs an attack, then
-    call `update()` with the outcome before calling `propose()` again."""
+    One instance drives one run: call `propose()` to get the next candidate (or
+    None, meaning stop), run it however the caller runs an attack, then call
+    `update()` with the outcome before calling `propose()` again."""
 
     def __init__(self, arms: list[Arm], budget: int, seed: int | None = 0) -> None:
         if not arms:
             raise ValueError("an adaptive search needs at least one arm")
         if budget < 1:
             raise ValueError(f"an adaptive search needs a budget of at least 1, got {budget}")
+        self.arms = list(arms)
         self._rng = random.Random(seed)
-        self._states = [_ArmState(arm=a, queue=a.candidates()) for a in arms]
+        self._untried: list[Candidate] = [c for i, a in enumerate(self.arms) for c in a.candidates(i)]
+        self._fails: Counter = Counter()      # part -> times a candidate containing it reproduced
+        self._passes: Counter = Counter()     # part -> times one containing it was held
+        self._tried_arms: Counter = Counter()
         self.budget = budget
         self.used = 0
         self.attempts: list[Attempt] = []
         self._outstanding: Candidate | None = None
+        self._novel = 0
 
     @property
     def coverage(self) -> float:
         """The share of arms that have had at least one candidate tried."""
-        return sum(1 for s in self._states if s.tried) / len(self._states)
+        return len(self._tried_arms) / len(self.arms)
 
     def done(self) -> bool:
-        return self.used >= self.budget or all(not s.queue for s in self._states)
+        return self.used >= self.budget or not self._untried
 
     def propose(self) -> Candidate | None:
         if self._outstanding is not None:
             raise RuntimeError("propose() was called again before update() reported the last candidate")
         if self.done():
             return None
-        live = [s for s in self._states if s.queue]
-        state = self._rng.choices(live, weights=[s.weight for s in live], k=1)[0]
-        candidate = state.queue.pop(0)
-        self._outstanding = candidate
+        draws: dict[tuple, float] = {}
+
+        def draw(part: tuple) -> float:
+            # one Thompson draw per part per proposal: a plausible success rate given the evidence so far
+            if part not in draws:
+                draws[part] = self._rng.betavariate(1 + self._fails[part], 1 + self._passes[part])
+            return draws[part]
+
+        best, best_score = None, -math.inf
+        for cand in self._untried:                                    # declared order, so a fixed seed is reproducible
+            score = mean(_logit(draw(part)) for part in cand.parts())
+            if score > best_score:
+                best, best_score = cand, score
+        self._untried.remove(best)
+        self._outstanding = best
+        self._novel = sum(1 for part in best.parts() if not (self._fails[part] or self._passes[part]))
         self.used += 1
-        return candidate
+        return best
 
     def update(self, status: str) -> None:
         """Report what the outstanding candidate did: `pass`, `fail`, or `inconclusive`."""
         if self._outstanding is None:
             raise RuntimeError("update() was called with no candidate outstanding")
         candidate, self._outstanding = self._outstanding, None
-        state = next(s for s in self._states if s.arm.technique == candidate.technique)
-        before = state.weight
-        state.tried += 1
-        if status == "fail":
-            state.found += 1
-            state.weight = min(state.weight * _RAISE, _MAX_WEIGHT)
-        elif status == "pass":
-            state.weight = max(state.weight * _LOWER, _MIN_WEIGHT)
-        self.attempts.append(Attempt(candidate, status, before, state.weight))
+        self._tried_arms[candidate.arm] += 1
+        if status in ("fail", "pass"):
+            tally = self._fails if status == "fail" else self._passes
+            for part in candidate.parts():
+                tally[part] += 1
+        self.attempts.append(Attempt(candidate, status, self._novel))
+
+    def _rate(self, part: tuple) -> float:
+        """The estimated chance a candidate containing `part` reproduces (a Beta posterior mean)."""
+        return (1 + self._fails[part]) / (2 + self._fails[part] + self._passes[part])
 
     def summary(self) -> dict[str, Any]:
-        """Everything about the search, for a run's own record: the budget spent,
-        the coverage reached, and the final state of every arm and attempt."""
+        """Everything about the search, for a run's own record: the budget spent, the
+        coverage reached, what it learned about each technique and slot value, and
+        every attempt in order."""
+        arms = []
+        for i, a in enumerate(self.arms):
+            part = ("arm", i)
+            arms.append({"arm": i, "technique": a.technique, "tried": self._tried_arms[i],
+                         "found": self._fails[part], "untried": sum(1 for c in self._untried if c.arm == i),
+                         "rate": round(self._rate(part), 3)})
+        slots = []
+        for part in sorted({p for p in (*self._fails, *self._passes) if p[0] == "slot"}):
+            slots.append({"slot": part[1], "value": part[2], "tried": self._fails[part] + self._passes[part],
+                          "found": self._fails[part], "rate": round(self._rate(part), 3)})
+        slots.sort(key=lambda r: (-r["rate"], -r["tried"], r["slot"], r["value"]))
         return {
             "budget": self.budget, "used": self.used, "coverage": round(self.coverage, 3),
-            "findings": sum(s.found for s in self._states),
-            "arms": [{"technique": s.arm.technique, "tried": s.tried, "found": s.found,
-                      "untried": len(s.queue), "final_weight": round(s.weight, 3)} for s in self._states],
-            "attempts": [{"candidate": a.candidate.to_dict(), "status": a.status,
-                          "weight_before": round(a.weight_before, 3), "weight_after": round(a.weight_after, 3)}
+            "findings": sum(1 for a in self.attempts if a.status == "fail"),
+            "arms": arms, "slots": slots,
+            "attempts": [{"candidate": a.candidate.to_dict(), "status": a.status, "novel_parts": a.novel_parts}
                          for a in self.attempts],
         }
 
@@ -289,4 +317,4 @@ class AdaptiveMemoryVector:
         """Every payload the declared grid *could* produce (for introspection,
         e.g. `chaos-agents plugins`-style tooling) -- not what a run necessarily
         tries, since that depends on what each attempt reveals."""
-        return [c.poison for s in self.search._states for c in s.arm.candidates()]
+        return [c.poison for i, a in enumerate(self.search.arms) for c in a.candidates(i)]
