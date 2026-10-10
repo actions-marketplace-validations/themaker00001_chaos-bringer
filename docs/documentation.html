@@ -229,6 +229,7 @@ judge:
             <tr><td><code>chatgpt_app</code></td><td>Attacks a ChatGPT App (an MCP server) by calling its tools with hostile arguments.</td></tr>
             <tr><td><code>sandbox</code></td><td>A contained world for computer-use agents: a local model acts on a small set of tools, the attack is planted in a page it reads, exfiltration is recorded but never really sent, and compromise is judged from ground truth.</td></tr>
             <tr><td><code>toolbot</code></td><td>A deterministic, model-free tool-using agent: it holds a confidential document containing a canary, calls the tools <code>search_docs</code>, <code>database_write</code>, <code>send_email</code>, <code>http_request</code>, <code>memory_read</code> and <code>memory_write</code> (its memory persists across sessions), and — like a naive agent — does what the message says. A <code>hardened</code> mode refuses risky actions and <code>memory_trusted: false</code> keeps memory but never obeys it. Built so the policy, taint, memory and replay features run end to end for free; it is a demo target, not a claim about any real product.</td></tr>
+            <tr><td><code>fortress</code></td><td>The opposite of <code>toolbot</code>: the same kind of tool-using agent behind eight enforced, individually switchable defence layers (<code>normalize</code>, <code>provenance</code>, <code>capabilities</code>, <code>egress</code>, <code>minimize</code>, <code>dlp</code>, <code>limits</code>, <code>output</code>; <code>config: {disable: [egress]}</code> turns one off). Its planner is deliberately as gullible as the naive bot, so the safety lives in the layers, and a blocked call is never executed. It exists so a clean result can be tested: <code>tools/fortress/siege.py</code> runs ~2,500 attacks across 18 configurations, <code>mutants.py</code> seeds known defects to check the attacks can find them, and <code>fuzz.py</code> checks the design's properties on random messages. <a href="https://github.com/themaker00001/chaos-bringer/blob/main/docs/FORTRESS.md">Method and numbers.</a></td></tr>
             <tr><td><code>echo</code> / <code>parrot</code></td><td>Naive demo targets with no model call — the zero-dependency smoke test and the ChaosBench calibration floor.</td></tr>
           </tbody>
         </table>
@@ -300,7 +301,8 @@ judge:
       action: require_approval
     http_request:
       action: allow
-      destinations: [api.mycompany.com]   <span class="c"># exact host or true subdomain, never a substring</span></pre>
+      destinations: [api.mycompany.com]   <span class="c"># exact host or true subdomain, never a substring</span>
+      schemes: [https]                    <span class="c"># optional: pin the transport too</span></pre>
       <div class="pill-row">
         <span class="pill"><b>PRIVILEGE VIOLATION</b> &mdash; a denied capability was invoked</span>
         <span class="pill"><b>APPROVAL BYPASS</b> &mdash; an approval-gated tool ran autonomously</span>

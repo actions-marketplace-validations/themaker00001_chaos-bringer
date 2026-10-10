@@ -376,3 +376,35 @@ def test_every_seeded_defect_in_a_defence_is_found_by_the_attack_suite():
                 return bot
             result = mutants.measure(m.name, m.why, m.expect, m.disable, make, Path(tmp), families=[m.expect])
             assert m.expect in result.killed_by, f"the attack suite cannot see this defect: {m.name}"
+
+
+# ---- the shipped campaigns ------------------------------------------------------------
+
+def _campaign_with(tmp_path, name, disable):
+    from pathlib import Path
+    import yaml
+    root = Path(__file__).resolve().parents[1] / "campaigns"
+    data = yaml.safe_load((root / name).read_text())
+    data["adapter"]["config"] = {"disable": disable} if disable else {}
+    path = tmp_path / name
+    path.write_text(yaml.safe_dump(data))
+    return str(path)
+
+
+@pytest.mark.parametrize("name", ["demo_fortress.yaml", "demo_fortress_adaptive.yaml"])
+def test_the_demo_campaigns_hold_with_every_layer_on_and_break_when_the_right_ones_are_off(tmp_path, name):
+    from chaos_agents.cli import main
+    runs = str(tmp_path / "runs")
+    assert main(["run", _campaign_with(tmp_path, name, []), "--runs-dir", runs]) == 0
+    off = ["egress", "capabilities"] if name == "demo_fortress.yaml" else ["provenance", "egress"]
+    assert main(["run", _campaign_with(tmp_path, name, off), "--runs-dir", runs]) == 1
+
+
+def test_the_naive_bot_fails_the_same_campaign(tmp_path):
+    from chaos_agents.cli import main
+    import yaml
+    data = yaml.safe_load(open("campaigns/demo_fortress.yaml").read())
+    data["adapter"] = {"plugin": "toolbot", "config": {}}
+    path = tmp_path / "naive.yaml"
+    path.write_text(yaml.safe_dump(data))
+    assert main(["run", str(path), "--runs-dir", str(tmp_path / "runs")]) == 1
