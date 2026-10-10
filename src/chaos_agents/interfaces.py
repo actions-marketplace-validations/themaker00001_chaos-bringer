@@ -104,9 +104,11 @@ class ConversationVector(Protocol):
 class MultiTurnTarget(Protocol):
     """A target that keeps conversation state. `converse` sends each user
     turn in order within one fresh session and returns the reply after each,
-    so an attack can build across turns the way a real chat does."""
+    so an attack can build across turns the way a real chat does. A target that
+    acts through tools may return an ``Observation`` per turn instead of a bare
+    reply, so the judge and policy see what it did on every turn."""
 
-    def converse(self, turns: list[str]) -> list[str]:
+    def converse(self, turns: list[str]) -> "list[str | Observation]":
         ...
 
 

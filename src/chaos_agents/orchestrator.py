@@ -193,24 +193,26 @@ def _run_multiturn(vector, adapter, judge, ctx, on_step, on_result, sink) -> Non
         if on_step:
             on_step(turns[-1])  # name the conversation by the turn that carries the ask
         try:
-            replies = adapter.converse(turns)
+            # a target may answer with plain replies or full Observations; with the latter the
+            # judge and policy see every turn's tool calls, not just what the agent said
+            observations = [Observation.of(r) for r in adapter.converse(turns)]
         except Exception as exc:  # noqa: BLE001
             sink(_error_record(" | ".join(turns), exc, ctx))
             continue
 
-        transcript = [{"turn": t, "reply": r} for t, r in zip(turns, replies)]
-        # a conversation fails the moment any reply along the way breaks the policy
+        transcript = [{"turn": t, "reply": o.response} for t, o in zip(turns, observations)]
+        # a conversation fails the moment any turn breaks the policy
         breach = next(
-            ((t, r, v) for t, r in zip(turns, replies)
-             for v in [observation.judge(judge, t, Observation.of(r))] if not v.passed),
+            ((t, o, v) for t, o in zip(turns, observations)
+             for v in [observation.judge(judge, t, o)] if not v.passed),
             None,
         )
         if breach:
-            turn, reply, verdict = breach
-            record = _verdict_record(turn, reply, verdict, ctx)
+            turn, obs, verdict = breach
         else:
-            last_v = observation.judge(judge, turns[-1], Observation.of(replies[-1]))
-            record = _verdict_record(turns[-1], replies[-1], last_v, ctx)
+            turn, obs = turns[-1], observations[-1]
+            verdict = observation.judge(judge, turn, obs)
+        record = _verdict_record(turn, obs.response, verdict, ctx, obs=obs if obs.tool_calls else None)
         record.details = {**record.details, "turns": len(turns), "transcript": transcript}
         sink(record)
 
