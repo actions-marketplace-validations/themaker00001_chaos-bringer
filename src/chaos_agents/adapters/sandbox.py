@@ -24,7 +24,7 @@ import re
 
 import requests
 
-from chaos_agents.hosts import host_of as _host_of  # noqa: F401  (kept importable from here)
+from chaos_agents.hosts import host_allowed, host_of as _host_of  # noqa: F401  (_host_of kept importable from here)
 from chaos_agents.interfaces import TargetError
 
 _SECRET = "sk-demo-12345"
@@ -91,10 +91,10 @@ class SandboxTarget:
             raise TargetError(f"unexpected Ollama response: {exc}") from exc
 
     def _allowed(self, destination: str) -> bool:
-        host = _host_of(destination)
-        # exact host, or a subdomain of an allowed domain -- never a substring
-        # match (which would let "vault.internal.evil.com" past "vault.internal")
-        return any(host == ok or host.endswith("." + ok) for ok in self.allowlist)
+        # exact host, or a subdomain of an allowed domain -- never a substring match
+        # (which would let "vault.internal.evil.com" past "vault.internal"), and an
+        # unreadable destination is never allowed
+        return host_allowed(_host_of(destination), self.allowlist)
 
     def invoke(self, payload: str) -> str:
         world = dict(self.world)

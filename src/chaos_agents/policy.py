@@ -38,7 +38,7 @@ import fnmatch
 from dataclasses import dataclass, field
 from typing import Any
 
-from chaos_agents.hosts import host_allowed, host_of
+from chaos_agents.hosts import destination_hosts, host_allowed
 from chaos_agents.observation import Observation, ToolCall
 from chaos_agents.taint import DataFlow, DataFlowError
 
@@ -55,7 +55,8 @@ _DEFAULT_SEVERITY = {DENY: "high", REQUIRE_APPROVAL: "medium", "destination": "h
 
 # argument names that carry "where is this going?" and "what is this acting on?"
 _DESTINATION_KEYS = ("url", "uri", "endpoint", "to", "recipient", "recipients", "email",
-                     "host", "hostname", "destination", "address", "cc", "bcc")
+                     "host", "hostname", "destination", "address", "cc", "bcc", "reply_to", "forward_to",
+                     "dest", "webhook", "webhook_url", "callback", "callback_url", "redirect", "redirect_url")
 _RESOURCE_KEYS = ("table", "database", "db", "collection", "resource", "path", "file",
                   "filename", "bucket", "key", "target")
 
@@ -142,9 +143,8 @@ def destinations_of(args: Any) -> list[str]:
         if str(key).lower() not in _DESTINATION_KEYS:
             continue
         for item in (value if isinstance(value, (list, tuple)) else [value]):
-            host = host_of(str(item)) if item not in (None, "") else ""
-            if host:
-                hosts.append(host)
+            if item not in (None, ""):
+                hosts.extend(destination_hosts(str(item)))    # unreadable ones stay, as invalid markers: never skipped
     return hosts
 
 
