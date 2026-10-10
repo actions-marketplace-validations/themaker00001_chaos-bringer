@@ -3,7 +3,8 @@ import json
 import pytest
 
 from chaos_agents import adaptive
-from chaos_agents.adaptive import AdaptiveMemoryVector, AdaptiveSearch, Arm, Candidate, arm_from_dict
+from chaos_agents.adaptive import (AdaptiveCorpusSearch, AdaptiveCorpusVector, AdaptiveMemoryVector,
+                                    AdaptiveSearch, Arm, Candidate, CorpusCandidate, arm_from_dict)
 from chaos_agents.adapters.toolbot import ToolBotAdapter
 from chaos_agents.campaign import Campaign, CampaignError
 from chaos_agents.cli import main
@@ -409,3 +410,271 @@ def test_cli_finding_promote_and_replay_work_on_an_adaptive_finding(tmp_path, ca
     assert main(["finding", "promote", fid]) == 0
     assert main(["replay", fid, "--fix", "memory_trusted=false", "--record"]) == 0
     assert "PASS" in capsys.readouterr().out
+
+
+# =====================================================================================
+# The corpus engine: the same search over single-shot attacks, against ANY adapter --
+# the headline reason it exists is that `adaptive_memory` only works on a target with
+# persistent memory, and most targets don't have one.
+# =====================================================================================
+
+from chaos_agents.mutations import Mutator  # noqa: E402
+
+CORPUS_SEEDS = ["s0", "s1", "s2", "s3"]
+CORPUS_MUTATORS = [Mutator(name, "encoding", "encoded_translated", (lambda n: (lambda p: f"{n}:{p}"))(name))
+                   for name in ("m0", "m1", "m2", "m3")]
+
+
+def corpus_search(budget=10, seed=0, seeds=None, mutators=None, include_direct=False) -> AdaptiveCorpusSearch:
+    return AdaptiveCorpusSearch(seeds or list(CORPUS_SEEDS), mutators if mutators is not None else list(CORPUS_MUTATORS),
+                                budget=budget, seed=seed, include_direct=include_direct)
+
+
+def cdrain(s: AdaptiveCorpusSearch, status="pass") -> list[CorpusCandidate]:
+    seen = []
+    while (c := s.propose()) is not None:
+        seen.append(c)
+        s.update(status(c) if callable(status) else status)
+    return seen
+
+
+# ---- AdaptiveCorpusSearch: construction and bookkeeping ------------------------------
+
+def test_corpus_search_needs_at_least_one_seed_and_a_positive_budget():
+    with pytest.raises(ValueError, match="at least one non-empty seed"):
+        AdaptiveCorpusSearch([], CORPUS_MUTATORS, budget=5)
+    with pytest.raises(ValueError, match="at least one non-empty seed"):
+        AdaptiveCorpusSearch(["   ", ""], CORPUS_MUTATORS, budget=5)
+    with pytest.raises(ValueError, match="budget of at least 1"):
+        corpus_search(budget=0)
+
+
+def test_corpus_search_needs_a_mutator_unless_direct_is_allowed():
+    with pytest.raises(ValueError, match="at least one mutator"):
+        AdaptiveCorpusSearch(CORPUS_SEEDS, [], budget=5, include_direct=False)
+    AdaptiveCorpusSearch(CORPUS_SEEDS, [], budget=5, include_direct=True)      # fine: direct-only is a valid grid
+
+
+def test_corpus_propose_then_update_is_the_only_valid_order():
+    s = corpus_search()
+    with pytest.raises(RuntimeError, match="no candidate outstanding"):
+        s.update("pass")
+    s.propose()
+    with pytest.raises(RuntimeError, match="called again before"):
+        s.propose()
+    s.update("pass")
+    assert s.used == 1
+
+
+def test_corpus_propose_stops_at_the_budget():
+    s = corpus_search(budget=3)
+    assert len(cdrain(s)) == 3 and s.propose() is None and s.done()
+
+
+def test_corpus_propose_stops_when_the_grid_is_exhausted_before_the_budget():
+    s = corpus_search(budget=100)         # 4 seeds x 4 mutators = 16 candidates
+    assert len(cdrain(s)) == 16 and s.used == 16 and s.done()
+
+
+def test_every_corpus_candidate_is_tried_exactly_once_given_enough_budget():
+    seen = cdrain(corpus_search(budget=100))
+    expected = {(i, m.name) for i in range(len(CORPUS_SEEDS)) for m in CORPUS_MUTATORS}
+    assert {(c.seed_id, c.mutator) for c in seen} == expected
+    assert len({c.id for c in seen}) == 16                    # every (seed, mutator) pair gets its own id
+
+
+def test_corpus_coverage_counts_seeds_with_at_least_one_attempt():
+    s = corpus_search(budget=1)
+    assert s.coverage == 0.0
+    s.propose(); s.update("pass")
+    assert s.coverage == 0.25
+
+
+def test_a_direct_candidate_and_a_mutated_one_never_collide():
+    s = AdaptiveCorpusSearch(["only seed"], CORPUS_MUTATORS, budget=100, include_direct=True)
+    seen = cdrain(s)
+    assert len(seen) == 5 and len({c.id for c in seen}) == 5   # direct + 4 mutators, 5 distinct ids
+    direct = next(c for c in seen if c.mutator == "")
+    assert direct.payload == "only seed" and direct.technique == "direct"
+
+
+# ---- AdaptiveCorpusSearch: it really does learn, same as the memory engine -----------
+
+WIDE_SEEDS = ["s0", "s1", "s2", "s3"]
+WIDE_MUTATORS = [Mutator(f"m{i}", "encoding", "encoded_translated", (lambda n: (lambda p: f"{n}:{p}"))(f"m{i}"))
+                 for i in range(4)]
+
+
+def corpus_second_pick_shares(first_status: str, part: str, seeds=300) -> float:
+    """How often the 2nd candidate shares the first one's `part` kind of value, after the
+    first one's `first_status` -- the same measurement `second_pick_shares` makes for arms/slots."""
+    shared = 0
+    for seed in range(seeds):
+        s = AdaptiveCorpusSearch(WIDE_SEEDS, WIDE_MUTATORS, budget=2, seed=seed)
+        first = s.propose(); s.update(first_status)
+        second = s.propose()
+        key = (lambda c: c.seed_id) if part == "seed" else (lambda c: c.mutator)
+        shared += key(second) == key(first)
+    return shared / seeds
+
+
+def test_a_corpus_finding_pulls_candidates_that_share_its_mutator_forward():
+    # blind chance a 2nd candidate shares the 1st's mutator: 3 of 15 untried = 20%
+    assert corpus_second_pick_shares("fail", "mutator") > 0.26
+
+
+def test_a_held_corpus_candidate_pushes_candidates_that_share_its_mutator_back():
+    assert corpus_second_pick_shares("pass", "mutator") < 0.15
+
+
+def test_the_pull_works_on_the_seed_axis_too():
+    assert corpus_second_pick_shares("fail", "seed") > 0.26
+    assert corpus_second_pick_shares("pass", "seed") < 0.15
+
+
+def test_corpus_unseen_values_are_explored_before_known_ones_are_repeated():
+    novel = 0
+    for seed in range(200):
+        s = AdaptiveCorpusSearch(WIDE_SEEDS, WIDE_MUTATORS, budget=4, seed=seed)
+        muts = set()
+        while (c := s.propose()) is not None:
+            muts.add(c.mutator); s.update("pass")
+        novel += len(muts) == 4
+    assert novel / 200 > 0.28
+
+
+def test_corpus_inconclusive_spends_budget_but_teaches_nothing():
+    s = corpus_search(budget=3)
+    s.propose(); s.update("inconclusive")
+    summ = s.summary()
+    assert s.used == 1 and summ["findings"] == 0 and summ["mutators"] == []
+    assert summ["seeds"][0]["found"] == 0 and summ["seeds"][0]["rate"] == 0.5
+
+
+def test_corpus_summary_says_what_was_learned_and_is_json_safe():
+    s = AdaptiveCorpusSearch(WIDE_SEEDS, WIDE_MUTATORS, budget=8, seed=3)
+    cdrain(s, lambda c: "fail" if c.mutator == "m2" else "pass")
+    summ = s.summary()
+    assert summ["findings"] == sum(1 for a in summ["attempts"] if a["status"] == "fail")
+    by_mut = {r["mutator"]: r for r in summ["mutators"]}
+    for row in by_mut.values():
+        assert row["found"] <= row["tried"] and 0 < row["rate"] < 1
+    if "m2" in by_mut:
+        assert by_mut["m2"]["found"] == by_mut["m2"]["tried"]
+    assert json.dumps(summ)
+
+
+def test_corpus_seed_zero_is_reproducible_and_different_seeds_differ():
+    def order(rng_seed):
+        return [c.id for c in cdrain(AdaptiveCorpusSearch(WIDE_SEEDS, WIDE_MUTATORS, budget=9, seed=rng_seed))]
+    assert order(0) == order(0)
+    assert len({tuple(order(s)) for s in range(10)}) > 1
+
+
+# ---- AdaptiveCorpusVector ------------------------------------------------------------
+
+def test_corpus_vector_defaults_to_the_builtin_seeds_and_every_mutator():
+    from chaos_agents import mutations
+
+    v = AdaptiveCorpusVector(budget=1)
+    assert len(v.generate()) == len(adaptive._DEFAULT_CORPUS_SEEDS) * (len(mutations.MUTATORS) + 1)
+
+
+def test_corpus_vector_accepts_custom_seeds_mutators_and_dimensions():
+    from chaos_agents import mutations
+
+    v = AdaptiveCorpusVector(budget=1, seeds=["x"], mutators=["base64", "rot13"], include_direct=False)
+    assert len(v.generate()) == 2
+    v2 = AdaptiveCorpusVector(budget=1, seeds=["x"], dimensions=["authority"], include_direct=False)
+    assert len(v2.generate()) == len(mutations.select(dimensions=["authority"]))
+
+
+def test_corpus_vector_rejects_an_unknown_mutator_or_dimension():
+    with pytest.raises(ValueError, match="unknown mutator"):
+        AdaptiveCorpusVector(seeds=["x"], mutators=["not-a-real-mutator"])
+    with pytest.raises(ValueError, match="unknown dimension"):
+        AdaptiveCorpusVector(seeds=["x"], dimensions=["not-a-real-dimension"])
+
+
+def test_corpus_propose_and_feedback_delegate_to_the_search():
+    v = AdaptiveCorpusVector(budget=1, seeds=["x"], mutators=["base64"])
+    c = v.propose()
+    assert isinstance(c, CorpusCandidate)
+    v.feedback("fail")
+    assert v.summary()["used"] == 1 and v.summary()["findings"] == 1
+
+
+# ---- through the orchestrator, against a target with NO memory at all ---------------
+
+def corpus_run(tmp_path, campaign_file="campaigns/demo_adaptive_corpus.yaml", **adapter_config):
+    campaign = Campaign.from_yaml(campaign_file)
+    campaign.adapter.config.update(adapter_config)
+    corpus = Corpus(campaign.name, root=tmp_path)
+    return campaign, corpus, run_campaign(campaign, corpus)
+
+
+def test_the_corpus_demo_campaign_runs_against_a_memoryless_target_and_finds_leaks(tmp_path):
+    from chaos_agents.adapters.echo import EchoAdapter
+
+    campaign, corpus, records = corpus_run(tmp_path)
+    assert not hasattr(EchoAdapter(), "reset_memory")          # the whole point: echo has no memory
+    assert len(records) == 24                                  # the campaign's budget
+    assert any(r.status == "fail" for r in records)
+    report = json.loads((corpus.run_dir / "adaptive_search.json").read_text())
+    assert report["used"] == 24 and report["budget"] == 24 and "mutators" in report and "seeds" in report
+
+
+def test_adaptive_memory_still_refuses_the_same_memoryless_target(tmp_path):
+    """The contrast that motivates the corpus engine: the memory flavour still fails loudly
+    on exactly the adapter the corpus flavour just ran against above."""
+    c = Campaign.from_yaml("campaigns/demo_adaptive.yaml")
+    c.adapter.plugin, c.adapter.config = "echo", {}
+    with pytest.raises(CampaignError, match="no persistent memory"):
+        run_campaign(c, Corpus(c.name, root=tmp_path))
+
+
+def test_every_corpus_record_carries_the_candidate_that_produced_it_and_is_tagged_goal_hijack(tmp_path):
+    _, _, records = corpus_run(tmp_path)
+    for r in records:
+        cand = r.details["candidate"]
+        assert set(cand) == {"id", "seed_id", "seed", "mutator", "technique", "payload"}
+        if r.status == "fail":
+            assert r.category == "goal_hijack" and r.technique == cand["technique"]
+
+
+def test_a_corpus_target_error_is_inconclusive_and_the_search_continues(tmp_path, monkeypatch):
+    from chaos_agents import registry
+    from chaos_agents.adapters.echo import EchoAdapter
+
+    calls = {"n": 0}
+
+    class Dies(EchoAdapter):
+        def invoke(self, payload):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise TimeoutError("down")
+            return super().invoke(payload)
+
+    real = registry.load
+    monkeypatch.setattr(registry, "load", lambda g, n, **c: Dies(secret="sk-demo-12345") if g == "chaos_agents.adapters" else real(g, n, **c))
+    _, _, records = corpus_run(tmp_path)
+    assert len(records) == 24
+    assert any(r.status == "inconclusive" and "target failed" in r.reason for r in records)
+
+
+def test_corpus_cli_prints_the_search_report_path(tmp_path, capsys):
+    code = main(["run", "campaigns/demo_adaptive_corpus.yaml", "--runs-dir", str(tmp_path)])
+    err = capsys.readouterr().err
+    assert code == 1
+    assert "Search report:" in err and "adaptive_search.json" in err
+
+
+def test_corpus_cli_finding_promote_and_replay_work_on_a_corpus_finding(tmp_path, capsys, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    main(["run", str(__import__("pathlib").Path(__file__).resolve().parent.parent / "campaigns/demo_adaptive_corpus.yaml")])
+    capsys.readouterr()
+    main(["finding", "list"])
+    fid = next(w for w in capsys.readouterr().out.split() if w.startswith("CB-"))
+    assert main(["finding", "promote", fid]) == 0
+    assert main(["replay", fid]) == 1                           # nothing changed: the naive target still leaks
+

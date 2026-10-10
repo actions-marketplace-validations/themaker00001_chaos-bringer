@@ -145,6 +145,14 @@ def _is_adaptive(vector) -> bool:
     return callable(getattr(vector, "propose", None)) and callable(getattr(vector, "feedback", None))
 
 
+def _adaptive_kind(vector) -> str:
+    """Which flavour of adaptive search this vector drives: "memory" (the candidate is a
+    `memory.Scenario`, run control->poison->trigger -- the only kind that existed before
+    `adaptive_corpus`, so it's the default for a third-party vector that predates this)
+    or "corpus" (the candidate is a plain payload, run as one ordinary single-shot trial)."""
+    return getattr(vector, "kind", "memory")
+
+
 def _run_adaptive(vector, adapter, judge, ctx, on_step, on_result, sink) -> None:
     """Generate -> run -> analyze -> pick the next path (see `chaos_agents.adaptive`).
     Unlike every other vector, this one sees the outcome of each attempt before
@@ -166,6 +174,31 @@ def _run_adaptive(vector, adapter, judge, ctx, on_step, on_result, sink) -> None
         record.details = {**record.details, "candidate": candidate.to_dict()}
         sink(record)
         vector.feedback(outcome.status)
+
+
+def _run_adaptive_corpus(vector, adapter, judge, ctx, on_step, on_result, sink) -> None:
+    """The same generate -> run -> analyze -> pick-the-next-path loop as `_run_adaptive`, but each
+    candidate is a plain mutated payload (see `chaos_agents.adaptive.AdaptiveCorpusVector`), run as
+    one ordinary Attack -> Agent -> Observation -> Judge trial -- so, unlike the memory flavour,
+    this works against any adapter, no persistent memory required."""
+    while True:
+        candidate = vector.propose()
+        if candidate is None:
+            break
+        if on_step:
+            on_step(candidate.payload)
+        try:
+            obs = observation.observe(adapter, candidate.payload)
+            verdict = observation.judge(judge, candidate.payload, obs)
+        except Exception as exc:  # noqa: BLE001 -- a target error is inconclusive; the search keeps going
+            sink(_error_record(candidate.payload, exc, ctx))
+            vector.feedback(INCONCLUSIVE)
+            continue
+        tags = (adaptive.CORPUS_CATEGORY, candidate.technique) if verdict.status == FAIL else None
+        record = _verdict_record(candidate.payload, obs.response, verdict, ctx, obs=obs, tags=tags)
+        record.details = {**record.details, "candidate": candidate.to_dict()}
+        sink(record)
+        vector.feedback(verdict.status)
 
 
 def _is_multiturn(vector, adapter) -> bool:
@@ -245,14 +278,18 @@ def run_campaign(
             on_result(record)
 
     # fail loudly: running a memory-poisoning vector (adaptive or not) against a
-    # target with no memory would "pass" every time and prove nothing
-    if _is_adaptive(vector) or _is_memory(vector):
+    # target with no memory would "pass" every time and prove nothing. An adaptive
+    # vector's "corpus" flavour tests single-shot attacks instead, so it needs no memory.
+    adaptive_kind = _adaptive_kind(vector) if _is_adaptive(vector) else None
+    if adaptive_kind == "memory" or _is_memory(vector):
         if not memory.supports_memory(adapter):
             raise CampaignError(
                 f"vector {campaign.vector.plugin!r} tests memory poisoning, but adapter "
                 f"{campaign.adapter.plugin!r} has no persistent memory "
                 f"(it needs reset_memory() and observe_in_session(payload, session))")
-        run = _run_adaptive if _is_adaptive(vector) else _run_memory
+        run = _run_adaptive if adaptive_kind == "memory" else _run_memory
+    elif adaptive_kind == "corpus":
+        run = _run_adaptive_corpus
     else:
         run = _run_multiturn if _is_multiturn(vector, adapter) else _run_single
     run(vector, adapter, judge, ctx, on_step, on_result, sink)
