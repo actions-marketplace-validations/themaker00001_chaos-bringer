@@ -14,3 +14,6 @@ tools/mascot/out/
 .env.*
 !.env.example
 .chaos_agents/
+
+# local research notes / candidate test-case ideas, not built yet - not for the public repo
+FUTURE.md
