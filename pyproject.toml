@@ -69,6 +69,8 @@ approval_loop = "chaos_agents.adapters.approval_loop:LoopjackingAdapter"
 allowlist_bypass = "chaos_agents.adapters.allowlist_bypass:AllowlistBypassAdapter"
 toctou = "chaos_agents.adapters.toctou:TocTouAdapter"
 trust_handoff = "chaos_agents.adapters.trust_handoff:TrustHandoffAdapter"
+mcp_tool_impl = "chaos_agents.adapters.mcp_tool_impl:McpToolImplementationAdapter"
+rag_to_eval = "chaos_agents.adapters.rag_to_eval:RagToEvalAdapter"
 
 [project.entry-points."chaos_agents.vectors"]
 static_corpus = "chaos_agents.vectors.static_corpus:StaticCorpusVector"

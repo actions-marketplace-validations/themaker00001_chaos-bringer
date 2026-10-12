@@ -61,6 +61,8 @@ the rows below run with no model and no network, against the bundled `toolbot` d
 | **Trust-handoff chain** | The sandbox never breaks. A separate, unsandboxed, trusted component reading its output without re-checking provenance is where this actually happens. | `chaos-agents run campaigns/demo_trust_handoff.yaml` |
 | **Allowlist semantic-bypass** | A capability allowlisted by command *name* only -- `git show`, `sed`, `find` and `echo` each have a documented side effect that name never sees. | `chaos-agents run campaigns/demo_allowlist_bypass.yaml` |
 | **TOCTOU race** | The check validates one target; the write, moments later, can land on a different one -- no real OS race needed to test the shape of it. | `chaos-agents run campaigns/demo_toctou.yaml` |
+| **MCP tool implementation bugs** | A tool *definition* can look perfectly fine while the implementation behind it is the vulnerable part -- unsanitized shell interpolation, naive path prefix-matching. | `chaos-agents run campaigns/demo_mcp_tool_impl.yaml` |
+| **RAG content reaching an eval()-equivalent** | A retrieved vector-store field can reach a code-execution step, not just change what a model says -- the question every other RAG-poisoning test here stops short of. | `chaos-agents run campaigns/demo_rag_to_eval.yaml` |
 | **Attack graph** | How a finding happened, stage by stage: delivery → hijack → tool call → violation → sink → outcome. | `chaos-agents run … --graph` |
 | **OWASP + ATLAS** | Every finding is mapped to the OWASP Agentic Top 10 and MITRE ATLAS; tags flow into JSON and SARIF. | automatic |
 | **Security findings** | Stable ids (`CB-956b1f46`), full evidence, status. | `chaos-agents finding list` · `finding show CB-…` |
@@ -106,7 +108,7 @@ Replay → CI** — plus **ChaosBench**, which reuses the adapter + observation 
 policy to score any target, as one number (v1) or a graded security profile (v2).
 
 - **Model Provider** — generates mutated payloads and, optionally, judges. Default: **Ollama**, local and free.
-- **Target Adapter** — connects to the system under test. **generic_proxy** intercepts any OpenAI/Ollama-shaped chat call, so most frameworks need zero adapter code; **ollama_chat** points straight at a local model that holds a conversation (no framework wiring), and it carries state, so **multi-turn** attacks that build across turns work against it; **mcp_fault** is a fault-injecting MCP proxy that poisons, errors, delays or mangles tool results on their way back to an agent — and goes deeper with **tool-description poisoning** (injection in the `tools/list` reply, "line jumping") and **poisoning chains** (per-tool faults so one tool's output steers the agent into another); **a2a** attacks an Agent-to-Agent agent over JSON-RPC, including **cross-agent trust abuse** and **identity spoofing** (see [examples/mcp_a2a_scenarios](examples/mcp_a2a_scenarios)); **chatgpt_app** attacks a ChatGPT App (an MCP server) by calling its tools with hostile arguments; **sandbox** is a contained environment for computer-use agents — a local model acts in a small world where the attack is planted in a page it reads, exfiltration (`send` to a destination, or `create`-ing a newly, more broadly visible artifact) is recorded but never really happens, and the sandbox detects compromise from ground truth. **toolbot** is a deterministic, model-free tool-using agent (it holds a confidential document, has persistent memory, and does what the message says), built so the policy, taint, memory and replay features run end to end for free. **fortress** is its opposite: the same kind of agent behind eight enforced, switchable defence layers, so there is something hard to attack (see [docs/FORTRESS.md](docs/FORTRESS.md)).
+- **Target Adapter** — connects to the system under test. **generic_proxy** intercepts any OpenAI/Ollama-shaped chat call, so most frameworks need zero adapter code; **ollama_chat** points straight at a local model that holds a conversation (no framework wiring), and it carries state, so **multi-turn** attacks that build across turns work against it; **mcp_fault** is a fault-injecting MCP proxy that poisons, errors, delays or mangles tool results on their way back to an agent — and goes deeper with **tool-description poisoning** (injection in the `tools/list` reply, "line jumping") and **poisoning chains** (per-tool faults so one tool's output steers the agent into another); **a2a** attacks an Agent-to-Agent agent over JSON-RPC, including **cross-agent trust abuse** and **identity spoofing** (see [examples/mcp_a2a_scenarios](examples/mcp_a2a_scenarios)); **chatgpt_app** attacks a ChatGPT App (an MCP server) by calling its tools with hostile arguments; **sandbox** is a contained environment for computer-use agents — a local model acts in a small world where the attack is planted in a page it reads, exfiltration (`send` to a destination, or `create`-ing a newly, more broadly visible artifact) is recorded but never really happens, and the sandbox detects compromise from ground truth. **toolbot** is a deterministic, model-free tool-using agent (it holds a confidential document, has persistent memory, and does what the message says), built so the policy, taint, memory and replay features run end to end for free. **fortress** is its opposite: the same kind of agent behind nine enforced, switchable defence layers, so there is something hard to attack (see [docs/FORTRESS.md](docs/FORTRESS.md)).
 - **Observation** — the stage between agent and judge. An agent doesn't only leak by *saying* the secret; it leaks by *doing* — calling `send_email(body=secret)`, `http_post(url, data=secret)`. An Observation captures the whole invocation (reply, every tool call, errors, latency), and the judge rules on that, so a canary that left through a tool argument is caught even when the reply looks clean. An adapter that only has text keeps returning a string; it's wrapped into an Observation automatically.
 - **Chaos Vector** — where the attacks come from. **static_corpus** replays a fixed payload list; **llm** has a model write fresh attacks from a goal you state; **multiturn** escalates over several turns; **indirect** buries the attack inside tool output the agent trusts; **mutation** fuzzes — it multiplies a few seeds into many variants (encoding, authority framing, structure, language) for a stress test, zero-cost and model-free. **memory_poison** runs cross-session scenarios — an instruction planted in one session, an innocent request in another — with a control run so memory is never blamed for what the agent does on its own; **adaptive_memory** runs that same kind of scenario but chooses its next attempt from what the last one revealed, over a declared grid of techniques, instead of a fixed list worked end to end; **adaptive_corpus** is the same idea generalized to single-shot attacks (seeds × the mutation engine's own mutators), so it runs against any adapter, memory or not. All free on Ollama, all pointable at your own agent.
 - **Judge** — decides pass/fail/severity. **rule-based** (regex / forbidden-substring, no model call) for clean cases; **llm** — a local model reads a plain-English policy and catches the fuzzier failures (paraphrased leaks, unsafe compliance) the rules miss, still free on Ollama. A campaign's **`policy:`** block wraps whichever judge you pick, so tool calls are checked against what the agent is allowed to do as well (see [Beyond the reply](#beyond-the-reply-judging-what-the-agent-did)).
@@ -1160,6 +1162,42 @@ chaos-agents run campaigns/demo_toctou.yaml
 No real OS race needed to test the shape of the bug: `bind_check_to_write: false` (default)
 trusts the earlier check regardless of what the target resolves to by write time;
 `bind_check_to_write: true` re-validates the *actual* write target immediately before writing.
+
+**MCP tool implementation bugs: the definition can look fine, the implementation behind it can't.**
+`mcp_fault.py` already fakes a tool's *definition* (rug pull, schema poisoning) -- this is the
+implementation itself. Two independently disclosed real CVEs: CVE-2025-53372
+(`node-code-sandbox-mcp`, an input parameter interpolated unsanitized into a shell call, arbitrary
+command execution) and CVE-2025-53109/53110 "EscapeRoute" (Cymulate) -- Anthropic's own reference
+Filesystem MCP server, <0.6.3, naive prefix-matching let `/allow_dir_sensitive` pass a check meant
+to allow only `/allow_dir`.
+
+```bash
+chaos-agents run campaigns/demo_mcp_tool_impl.yaml
+```
+
+`safe_exec: true` escapes the shell argument properly instead of interpolating it raw;
+`safe_path_check: true` requires an exact match or a true subdirectory boundary instead of a bare
+string prefix -- the same suffix-boundary discipline `chaos_agents.hosts` already applies to
+hostnames, worth noting as a positive contrast rather than another vulnerability demo.
+
+**RAG content reaching an eval()-equivalent, not just changing what gets said.** Microsoft's own
+May 2026 disclosure: two critical CVEs (CVE-2026-26030, CVSS 9.8, Semantic Kernel routes
+attacker-controlled vector-store field content into Python `eval()`; CVE-2026-25592) naming the
+same prompt-to-shell escalation shape across Semantic Kernel, LangChain, and AutoGen middleware.
+Every other RAG-poisoning test in this project stops at "did behavior change" -- never "did code
+execute."
+
+```bash
+chaos-agents run campaigns/demo_rag_to_eval.yaml
+```
+
+Never calls a real `eval()` -- the "interpreter" is a deliberately tiny stand-in that still shows
+the shape. `sandbox_eval: true` only ever interpolates a retrieved field literally;
+`sandbox_eval: false` (default) hands it to the toy interpreter exactly as a real eval()-based
+templating engine would. Caught the same judge false-positive-on-the-fix-case bug a fourth time
+here: a tool call's *arguments* carry the poisoned field's raw text either way, since
+`Observation.text_for_judge()` flattens tool-call arguments too, not just results -- fixed by
+matching only the tool call's *result* actually saying it executed as code.
 
 ### Testing our own detection layer, not just the target
 
