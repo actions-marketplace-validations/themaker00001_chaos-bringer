@@ -64,6 +64,7 @@ sandbox = "chaos_agents.adapters.sandbox:SandboxTarget"
 toolbot = "chaos_agents.adapters.toolbot:ToolBotAdapter"
 fortress = "chaos_agents.adapters.fortress:FortressAdapter"
 a2a_trust = "chaos_agents.adapters.a2a_trust:A2ATrustAdapter"
+approval_loop = "chaos_agents.adapters.approval_loop:LoopjackingAdapter"
 
 [project.entry-points."chaos_agents.vectors"]
 static_corpus = "chaos_agents.vectors.static_corpus:StaticCorpusVector"
