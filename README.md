@@ -58,6 +58,9 @@ the rows below run with no model and no network, against the bundled `toolbot` d
 | **Exfiltration via `create`** | No destination contacted at all -- the secret leaves by being written into a new, more broadly visible artifact the agent creates. A real model, measured: 2/3 lures worked. | `chaos-agents run campaigns/demo_sandbox_create.yaml` |
 | **STT-origin trust mislabeling** | Nothing marks which part of a transcript was actually spoken vs. invented by the speech-to-text system. A real model, measured -- held, this time. | `chaos-agents run campaigns/demo_stt_hallucination.yaml` |
 | **Image-rescale gap** | A reply that gives nothing away, and a real tool call carrying data out -- triggered by content a human reviewer never saw at all. | `chaos-agents run campaigns/demo_image_rescale.yaml` |
+| **Trust-handoff chain** | The sandbox never breaks. A separate, unsandboxed, trusted component reading its output without re-checking provenance is where this actually happens. | `chaos-agents run campaigns/demo_trust_handoff.yaml` |
+| **Allowlist semantic-bypass** | A capability allowlisted by command *name* only -- `git show`, `sed`, `find` and `echo` each have a documented side effect that name never sees. | `chaos-agents run campaigns/demo_allowlist_bypass.yaml` |
+| **TOCTOU race** | The check validates one target; the write, moments later, can land on a different one -- no real OS race needed to test the shape of it. | `chaos-agents run campaigns/demo_toctou.yaml` |
 | **Attack graph** | How a finding happened, stage by stage: delivery → hijack → tool call → violation → sink → outcome. | `chaos-agents run … --graph` |
 | **OWASP + ATLAS** | Every finding is mapped to the OWASP Agentic Top 10 and MITRE ATLAS; tags flow into JSON and SARIF. | automatic |
 | **Security findings** | Stable ids (`CB-956b1f46`), full evidence, status. | `chaos-agents finding list` · `finding show CB-…` |
@@ -1101,6 +1104,62 @@ carrying the escalation notes to `drop@attacker.example`, triggered entirely by 
 appeared in the preview at all. `document_trusted: false` (the same flag that already fixes
 document-borne RAG poisoning) closes this channel too -- the hidden content is simply never
 consulted.
+
+### Sandbox escapes: the sandbox holds, the trust *around* it doesn't
+
+A 2025-2026 cluster of disclosures across Cursor, OpenAI Codex CLI, Google Gemini CLI, and Google
+Antigravity (Pillar Security's "Week of Sandbox Escapes"; Cato Networks' DuneSlide) shares a common
+thread, quoted directly rather than paraphrased: *none of the disclosed issues broke the sandbox
+itself*. Each exploited the gap between what a sandbox restricts and what happens to its output
+once a separate, trusted, unsandboxed component acts on it. Three new, fully deterministic
+scenarios, no model needed for any of them:
+
+**Trust-handoff: sandboxed write → unsandboxed consume.** GitPwned (Pillar Security, 2026-01):
+`git show --output=./.git/config --format=...` writes an attacker-controlled external diff-tool
+entry that runs with full user privilege on the next ordinary `git diff`. The sandboxed agent
+wrote fully within its own declared capability the whole time.
+
+```bash
+chaos-agents run campaigns/demo_trust_handoff.yaml
+```
+
+`sandboxed_write` always "succeeds" -- the point of the finding is that the sandbox itself is
+never broken. `trusted_consume` is a *separate* component with its own trust decision:
+`revalidate_provenance: false` (default) executes whatever's there unconditionally;
+`revalidate_provenance: true` checks it against the last known-good version first and refuses a
+mismatch.
+
+**Allowlist semantic-bypass: a capability allowlisted by command NAME only.** Three independent,
+real bypasses of exactly that assumption: GitPwned again, Claude Code CVE-2026-25723 (`sed -i`
+writes arbitrary files, CVSS 8.8), CVE-2026-24887 (`find ... -exec` bypasses sandbox restrictions,
+CVSS 8.8), and CVE-2025-54795 "InversePrompt" (`echo` whitelisted for auto-execution;
+`echo "..."; <arbitrary command>` broke out of the intended context entirely, CVSS 9.8).
+
+```bash
+chaos-agents run campaigns/demo_allowlist_bypass.yaml
+```
+
+Each of these commands has a documented secondary capability -- output redirection, in-place edit,
+exec, command chaining -- invisible to a check that only ever looks at the command's own name.
+`strict_arguments: true` is the fix: a command matching its own known-dangerous argument shape is
+refused even though its name is allowed. (Caught a subtle bug writing the test for this one: the
+refusal message's own explanation -- *"...not allowed via `-exec`"* -- restated the trigger syntax
+closely enough to falsely trip a content-based judge on the **fixed** case. Fixed by making the
+refusal deliberately generic.)
+
+**TOCTOU: the check and the write don't necessarily see the same target.** CodeAnt's Claude Code
+finding (HackerOne #3882177, CVSS 7.7) and Cursor's CVE-2026-50549 (a different vendor, found
+independently -- a convergent class, with its own name in arXiv:2607.05743): a privileged writer
+checks that a path is safe, then separately writes to wherever that path resolves to -- and
+between the two, an attacker swaps a symlink so the path now points somewhere else entirely.
+
+```bash
+chaos-agents run campaigns/demo_toctou.yaml
+```
+
+No real OS race needed to test the shape of the bug: `bind_check_to_write: false` (default)
+trusts the earlier check regardless of what the target resolves to by write time;
+`bind_check_to_write: true` re-validates the *actual* write target immediately before writing.
 
 ### Testing our own detection layer, not just the target
 

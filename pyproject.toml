@@ -66,6 +66,9 @@ toolbot = "chaos_agents.adapters.toolbot:ToolBotAdapter"
 fortress = "chaos_agents.adapters.fortress:FortressAdapter"
 a2a_trust = "chaos_agents.adapters.a2a_trust:A2ATrustAdapter"
 approval_loop = "chaos_agents.adapters.approval_loop:LoopjackingAdapter"
+allowlist_bypass = "chaos_agents.adapters.allowlist_bypass:AllowlistBypassAdapter"
+toctou = "chaos_agents.adapters.toctou:TocTouAdapter"
+trust_handoff = "chaos_agents.adapters.trust_handoff:TrustHandoffAdapter"
 
 [project.entry-points."chaos_agents.vectors"]
 static_corpus = "chaos_agents.vectors.static_corpus:StaticCorpusVector"
