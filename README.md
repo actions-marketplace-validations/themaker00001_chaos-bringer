@@ -49,7 +49,7 @@ the rows below run with no model and no network, against the bundled `toolbot` d
 | **Taint tracking** | Plant a canary secret and follow it to the sink, even when it leaves base64-encoded and the reply looks clean. | `chaos-agents run campaigns/demo_dataflow.yaml` |
 | **Memory poisoning** | An instruction planted in one session fires in another. Control run first, so memory is never blamed for the agent's own behaviour. | `chaos-agents run campaigns/demo_memory.yaml` |
 | **Cross-surface chains** | A poisoned retrieval document, a behavior check against a clean control, and a separate tool-boundary test -- one coordinated campaign, not three isolated ones. | `chaos-agents chain campaigns/chain_rag_to_boundary.yaml` |
-| **Agent-to-agent trust chains** | Does a forged identity survive delegation through an orchestrator and reach a privileged agent's tool boundary? Real findings, real regressions. | `chaos-agents a2a-chain campaigns/a2a_trust_exploitation.yaml` |
+| **Agent-to-agent trust chains** | Does a forged identity survive delegation through an orchestrator and reach a privileged agent's tool boundary? Real findings, real regressions. A wildcard-matched origin check is its own, separate failure. | `chaos-agents a2a-chain campaigns/a2a_trust_exploitation.yaml` |
 | **Skill poisoning** | A real tool-calling model, a maliciously-modified "skill" from a public catalog. Does labelling it as data stop it? (No.) Does an enforced egress gate? (Stops the direct attack -- not a body-smuggled one.) | `chaos-agents run campaigns/demo_skill_poisoning.yaml` |
 | **MCP rug pull** | A clean tool definition, approved over several calls, silently swapped for a schema-poisoned one -- no re-approval forced by the protocol. Trust-on-first-use pinning catches it. | `chaos-agents run campaigns/demo_mcp_rugpull.yaml` |
 | **PleaseFix delegation** | No "ignore previous instructions," no injection marker at all -- just an ordinary, polite email asking for a favor. No skill poisoned, no tool redefined: just ambient delegation language. | `chaos-agents run campaigns/demo_pleasefix_delegation.yaml` |
@@ -691,6 +691,27 @@ real finding through the normal policy path, `finding promote` writes a regressi
 `replay --fix verify_origin=true --fix enforce_at_execution=true --record` closes it and marks it
 fixed -- the same `replay`/`regression` machinery every other target in this project uses, proven
 end to end in `tests/test_trustchain.py`.
+
+**A third, orthogonal axis: `verify_origin=True` says B checks the claim -- but not how
+precisely.** ShadowPrompt (Anthropic's Claude in Chrome extension, disclosed 2025-12-27) found a
+real check that existed and still matched too loosely: the extension trusted any sender matching
+the wildcard `*.claude.ai`, and a separate XSS on the real domain let attacker page content message
+the extension as that trusted first-party sender. `trust_mode="wildcard"` with a `trust_pattern`
+models exactly this: B treats any `true_origin` satisfying the pattern as verified *without*
+correcting `claimed_origin` back to the truth -- so C ends up authorizing whatever identity A
+*claimed*, based only on the true sender being a loose pattern-match, never confirmed to be the
+specific identity named.
+
+```bash
+chaos-agents a2a-chain campaigns/a2a_wildcard_trust_spoofing.yaml --json   # both fixes ON, still compromised
+```
+
+Both of the table's fixes are **on** here -- `verify_origin` and `enforce_at_execution` -- and it's
+still compromised: `true_identity: phishing-admin.internal` isn't `security-admin`, has no
+registry entry of its own, and would be correctly refused in the default `exact` trust mode. It
+only gets through because it happens to match the same broad pattern (`*-admin.internal`) the
+legitimate identity would. `trust_mode="exact"` (the default) closes it, unaffected by this axis:
+it always relabels with the true origin exactly, pattern or not.
 
 ### Skill poisoning: a real model, a real tool loop, a real finding
 
