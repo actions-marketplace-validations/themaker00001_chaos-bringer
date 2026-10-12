@@ -929,6 +929,18 @@ interesting and more honest shape a real security finding takes. `tests/test_ski
 ::test_openai_backend_reproduces_the_real_gpt_5_4_mini_pleasefix_hold` reproduces it
 deterministically.
 
+**`gpt-5.4-mini` holding was the model's own judgement, not an enforced fix -- worth being precise
+about.** Unlike `tofu_pinning`, `enforce_egress`, `narration`, or `trust_mode="exact"` elsewhere in
+this project, nothing here forces the outcome; a different model, or the same model on a different
+day, could comply. The reassuring part: `enforce_egress` (built for skill poisoning, destination
+allowlisted at the point of execution, independent of why the model decided to call `send_email`)
+is generic -- it doesn't know or care whether the call was triggered by a poisoned skill or an
+inbox-delivered delegation email. Replaying qwen3:14b's real, captured PleaseFix exfiltration
+attempt through `enforce_egress=True` blocks it outright: `BLOCKED: 'partner-sync.example' is not
+an approved recipient domain`. The same fix, no changes needed, closes a completely different
+delivery path. `tests/test_skill_agent.py
+::test_enforce_egress_also_closes_pleasefix_even_though_it_was_built_for_skill_poisoning` proves it.
+
 ### Testing our own detection layer, not just the target
 
 Two small, free, deterministic additions test whether chaos-agents' *own* tooling has the same
