@@ -47,7 +47,7 @@ the rows below run with no model and no network, against the bundled `toolbot` d
 |---|---|---|
 | **Capability + policy** | Declare what the agent may do; every tool call is checked. Privilege violations, approval bypasses, off-list destinations. | `chaos-agents run campaigns/demo_policy.yaml` |
 | **Taint tracking** | Plant a canary secret and follow it to the sink, even when it leaves base64-encoded and the reply looks clean. | `chaos-agents run campaigns/demo_dataflow.yaml` |
-| **Memory poisoning** | An instruction planted in one session fires in another. Control run first, so memory is never blamed for the agent's own behaviour. | `chaos-agents run campaigns/demo_memory.yaml` |
+| **Memory poisoning** | An instruction planted in one session fires in another. Control run first, so memory is never blamed for the agent's own behaviour. A retrieved document can plant it just as well as a direct chat message. | `chaos-agents run campaigns/demo_memory.yaml` |
 | **Cross-surface chains** | A poisoned retrieval document, a behavior check against a clean control, and a separate tool-boundary test -- one coordinated campaign, not three isolated ones. | `chaos-agents chain campaigns/chain_rag_to_boundary.yaml` |
 | **Agent-to-agent trust chains** | Does a forged identity survive delegation through an orchestrator and reach a privileged agent's tool boundary? Real findings, real regressions. A wildcard-matched origin check is its own, separate failure. | `chaos-agents a2a-chain campaigns/a2a_trust_exploitation.yaml` |
 | **Skill poisoning** | A real tool-calling model, a maliciously-modified "skill" from a public catalog. Does labelling it as data stop it? (No.) Does an enforced egress gate? (Stops the direct attack -- not a body-smuggled one.) | `chaos-agents run campaigns/demo_skill_poisoning.yaml` |
@@ -504,6 +504,27 @@ vector:
 The target needs `reset_memory()` and `observe_in_session(payload, session)`. A
 memory vector pointed at an adapter without them fails loudly, rather than passing
 by testing nothing.
+
+**All three built-in scenarios deliver their poison as a direct chat message -- "Remember: ..."
+-- which is also the thing a real attacker rarely gets to do.** ZombieAgent (Radware, reported to
+OpenAI 2025-09, disclosed 2026-01) is the more realistic shape: the poison plants itself through a
+**data channel** the agent is only supposed to be *reading* -- a document, in this case -- not a
+direct instruction. `toolbot` can now retrieve a separate `onboarding_document`, gated by the same
+`document_trusted` flag that already governs whether retrieved content is treated as instructions
+for the *current* turn -- writing it into memory for every *future* turn is the same trust
+decision, just longer-lived:
+
+```bash
+chaos-agents run campaigns/demo_memory_zombieagent.yaml   # exits 1: memory was poisoned via a document
+```
+
+The attacker session never says anything resembling "remember" or "from now on" -- it just asks
+"Can you search the docs for onboarding info?" The instruction rides inside the retrieved
+onboarding guide instead, and that is still enough to poison memory for every later, unrelated
+session. Same two independent fixes as the lesson everywhere else in this project: `document_trusted:
+false` closes it at the **delivery** point (the document's content never enters memory at all);
+`memory_trusted: false` closes it at the **consumption** point (whatever's in memory, however it
+got there, is never treated as a directive) -- proven independently in `tests/test_memory.py`.
 
 ### The adaptive attack engine
 
