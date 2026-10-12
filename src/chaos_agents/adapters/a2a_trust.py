@@ -42,11 +42,14 @@ class A2ATrustAdapter:
         authorized_identities: dict[str, Any] | None = None,
         verify_origin: bool = False,
         enforce_at_execution: bool = False,
+        trust_mode: str = "exact",
+        trust_pattern: str | None = None,
     ) -> None:
         self.config = TrustChainConfig(
             name="a2a-trust", true_identity=true_identity, claimed_identity=claimed_identity,
             instruction=instruction, authorized_identities=_as_registry(authorized_identities),
             verify_origin=verify_origin, enforce_at_execution=enforce_at_execution,
+            trust_mode=trust_mode, trust_pattern=trust_pattern,
         )
 
     def observe(self, payload: str) -> Observation:

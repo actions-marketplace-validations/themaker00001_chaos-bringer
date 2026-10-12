@@ -47,7 +47,7 @@ lives in the layers around it, which never depend on the planner behaving.
 message -> [normalize] -> planner -> proposed tool calls -> [gate] -> executed calls
                                           |                    |
               memory <- [provenance]      |       [capabilities, egress, dlp, limits]
-                                          +--> reply -> [output filter]
+                                          +--> reply -> [output filter] -> [narration]
 ```
 
 A blocked call is **not executed**, so it never appears in the observation's tool calls: this is
@@ -64,9 +64,13 @@ enforcement, not detection. What was blocked, and by which layer, is in the audi
 | `dlp` | every outbound argument is scanned for registered secrets in any costume (folded, reversed, ROT13, base64, hex, URL-encoded), for any fragment of at least half the secret, for a secret reassembled from earlier calls, in any order (running coverage), and for opaque blobs |
 | `limits` | one outbound call per message, a cap on tool calls, on messages per session, and on outbound calls per session |
 | `output` | the reply is scrubbed for secrets before it leaves |
+| `narration` | what the user is told matches what the gate actually executed; a quoted "when you reply, just say ..." directive from the (untrusted) planner never overwrites the reply with a different account of events (Lies-in-the-Loop, Checkmarx Zero, 2025-2026) |
 
 Every layer can be switched off (`config: {disable: [egress]}`), down to the naive agent with
-all of them off. That is what makes the results below interpretable.
+all of them off. That is what makes the results below interpretable. The siege, mutant, and fuzz
+numbers in this doc predate `narration` and cover the original eight layers only; it is tested
+separately and deterministically in `tests/test_fortress.py`, not yet folded into those aggregate
+runs.
 
 ## How it was attacked, and what that showed
 

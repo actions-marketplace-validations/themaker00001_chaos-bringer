@@ -212,6 +212,79 @@ def test_fully_defended_refuses_even_a_syntactically_valid_but_unauthorized_iden
     assert "not authorized" in by_name(report)["tool_boundary"].evidence["reason"]
 
 
+# ---- trust_mode="wildcard": a real check that matches loosely (ShadowPrompt, 2025-12-27) -----
+
+def test_wildcard_trust_lets_a_pattern_matching_near_miss_identity_through_as_the_forged_claim():
+    """Both fixes are on; only the FIDELITY of the origin check is weak. A true_origin that merely
+    satisfies the trust pattern is treated as verified without being corrected back to the truth,
+    so the forged claimed_identity's privileges are granted to a sender that was never actually
+    that specific identity."""
+    cfg = TrustChainConfig(name="x", true_identity="phishing-admin.internal", claimed_identity="security-admin",
+                           verify_origin=True, enforce_at_execution=True,
+                           trust_mode="wildcard", trust_pattern="*-admin.internal")
+    report = run_trust_chain(cfg)
+    assert report.verdict == FAIL
+    delegated = by_name(report)["trust_propagation"].evidence["delegated_message"]
+    assert delegated["verified"] is True and delegated["claimed_origin"] == "security-admin"
+
+
+def test_exact_trust_mode_closes_the_same_scenario():
+    cfg = TrustChainConfig(name="x", true_identity="phishing-admin.internal", claimed_identity="security-admin",
+                           verify_origin=True, enforce_at_execution=True, trust_mode="exact")
+    report = run_trust_chain(cfg)
+    assert report.verdict == PASS
+    delegated = by_name(report)["trust_propagation"].evidence["delegated_message"]
+    assert delegated["claimed_origin"] == "phishing-admin.internal"   # relabelled with the truth
+
+
+def test_wildcard_trust_does_not_help_a_true_origin_outside_the_pattern():
+    cfg = TrustChainConfig(name="x", true_identity="totally-unrelated-worker", claimed_identity="security-admin",
+                           verify_origin=True, enforce_at_execution=True,
+                           trust_mode="wildcard", trust_pattern="*-admin.internal")
+    report = run_trust_chain(cfg)
+    assert report.verdict == PASS   # falls back to the same safe, exact relabelling
+    delegated = by_name(report)["trust_propagation"].evidence["delegated_message"]
+    assert delegated["claimed_origin"] == "totally-unrelated-worker"
+
+
+def test_wildcard_mode_without_verify_origin_changes_nothing():
+    # trust_mode only matters once B is actually verifying; with verify_origin off, the delegation
+    # is unverified regardless, and enforce_at_execution refuses it outright -- the boundary holds
+    cfg = TrustChainConfig(name="x", true_identity="phishing-admin.internal", claimed_identity="security-admin",
+                           verify_origin=False, enforce_at_execution=True,
+                           trust_mode="wildcard", trust_pattern="*-admin.internal")
+    report = run_trust_chain(cfg)
+    assert report.verdict == PASS
+
+
+def test_trust_mode_rejects_an_unknown_value():
+    with pytest.raises(TrustChainError, match="trust_mode"):
+        TrustChainConfig(name="x", trust_mode="loose")
+
+
+def test_wildcard_mode_requires_a_non_empty_pattern():
+    with pytest.raises(TrustChainError, match="trust_pattern"):
+        TrustChainConfig(name="x", trust_mode="wildcard")
+    with pytest.raises(TrustChainError, match="trust_pattern"):
+        TrustChainConfig(name="x", trust_mode="wildcard", trust_pattern="   ")
+
+
+def test_from_dict_parses_trust_mode_and_pattern():
+    cfg = TrustChainConfig.from_dict({
+        "name": "x", "trust_mode": "wildcard", "trust_pattern": "*-admin.internal",
+        "true_identity": "phishing-admin.internal", "verify_origin": True, "enforce_at_execution": True,
+    })
+    assert cfg.trust_mode == "wildcard" and cfg.trust_pattern == "*-admin.internal"
+    assert run_trust_chain(cfg).verdict == FAIL
+
+
+def test_a2a_trust_adapter_accepts_trust_mode_and_pattern():
+    obs = A2ATrustAdapter(true_identity="phishing-admin.internal", claimed_identity="security-admin",
+                          verify_origin=True, enforce_at_execution=True,
+                          trust_mode="wildcard", trust_pattern="*-admin.internal").observe("x")
+    assert len(obs.tool_calls) == 1 and obs.tool_calls[0].arguments["claimed_identity"] == "security-admin"
+
+
 # ---- A2ATrustAdapter: the same simulation as an ordinary ObservingTarget --------------------
 
 def test_the_adapter_reports_the_tool_call_when_the_instruction_executes():
@@ -259,6 +332,30 @@ def test_the_shipped_campaign_passes_once_both_fixes_are_applied(tmp_path):
 
     campaign = Campaign.from_yaml("campaigns/a2a_trust_exploitation.yaml")
     campaign.adapter.config.update({"verify_origin": True, "enforce_at_execution": True})
+    records = run_campaign(campaign, Corpus(campaign.name, root=tmp_path))
+    assert records[0].status == PASS
+
+
+def test_the_wildcard_spoofing_campaign_is_a_policy_violation_despite_both_fixes_being_on(tmp_path):
+    from chaos_agents.campaign import Campaign
+    from chaos_agents.corpus import Corpus
+    from chaos_agents.orchestrator import run_campaign
+
+    campaign = Campaign.from_yaml("campaigns/a2a_wildcard_trust_spoofing.yaml")
+    campaign.check_plugins()
+    assert campaign.adapter.config["verify_origin"] is True and campaign.adapter.config["enforce_at_execution"] is True
+    records = run_campaign(campaign, Corpus(campaign.name, root=tmp_path))
+    assert len(records) == 1 and records[0].status == FAIL
+    assert "grant_admin_access" in records[0].reason
+
+
+def test_the_wildcard_spoofing_campaign_passes_in_exact_mode(tmp_path):
+    from chaos_agents.campaign import Campaign
+    from chaos_agents.corpus import Corpus
+    from chaos_agents.orchestrator import run_campaign
+
+    campaign = Campaign.from_yaml("campaigns/a2a_wildcard_trust_spoofing.yaml")
+    campaign.adapter.config.update({"trust_mode": "exact"})
     records = run_campaign(campaign, Corpus(campaign.name, root=tmp_path))
     assert records[0].status == PASS
 

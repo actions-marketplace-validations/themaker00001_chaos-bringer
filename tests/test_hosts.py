@@ -115,3 +115,44 @@ def test_host_of_still_reads_the_ordinary_forms():
 
 def test_an_unrelated_argument_name_is_not_a_destination():
     assert violations("http_request", note="https://attacker.example") == []
+
+
+# ---- regression against the literal real-world bypass strings this pattern has actually used --
+# (2025-10-11 research pass, see FUTURE.md) -- not new coverage, since the generic tests above
+# already exercise these failure classes; this anchors them to the exact, dated incidents so the
+# project's own claim ("we already defend against this") is checked against the real payload, not
+# just a similar-looking one we wrote ourselves.
+
+def test_holds_against_the_claude_code_socks5_null_byte_bypass():
+    # oddguan.com, 2026-04: a JS-side allowlist matched `endsWith('.google.com')` while the OS's
+    # getaddrinfo() truncated at the null byte and dialed the attacker's host. Present in Claude
+    # Code v2.0.24-v2.1.89 (~130 releases), fixed silently in v2.1.90.
+    host = host_of("attacker-host.com\x00.google.com")
+    assert is_invalid(host)
+    assert not host_allowed(host, ["google.com"])
+
+
+def test_holds_against_an_empty_string_allowlist_entry():
+    # the CVE-2025-66479 shape: an empty allowlist (or an allowlist containing only an empty
+    # string) must never be read as "allow everything".
+    assert not host_allowed("anything.example", [])
+    assert not host_allowed("anything.example", [""])
+
+
+def test_holds_against_multiple_recipients_hiding_an_unapproved_one():
+    # the general case this project's own policy engine already relies on destination_hosts for;
+    # named here against the exact "evil@x;ok@allowed" shape quoted in FUTURE.md's own notes.
+    hosts = destination_hosts("evil@x.example;ok@allowed.com")
+    assert "x.example" in hosts and "allowed.com" in hosts
+    assert not host_allowed("x.example", ["allowed.com"])
+    assert host_allowed("allowed.com", ["allowed.com"])
+
+
+def test_holds_against_the_escaperoute_prefix_match_shape_applied_to_hostnames():
+    # Cymulate's EscapeRoute (CVE-2025-53109/53110) is a filesystem-path prefix-match bug, not a
+    # hostname one -- hosts.py doesn't do path matching, so it can't have that exact bug. This
+    # checks the hostname analogue holds: "allowed.com.evil.example" (a true subdomain of
+    # evil.example, not of allowed.com) is never approved by a naive substring/prefix check on
+    # "allowed.com".
+    assert not host_allowed("allowed.com.evil.example", ["allowed.com"])
+    assert host_allowed("sub.allowed.com", ["allowed.com"])      # a true subdomain still passes

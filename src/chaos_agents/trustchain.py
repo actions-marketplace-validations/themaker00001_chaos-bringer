@@ -41,6 +41,18 @@ Either alone can close the path on its own merits (C's check is real defence-in-
 of whether B did its job); neither guarantees the other is closed, which ``tests/test_trustchain.py``
 asserts for all four combinations, not just "before" and "after".
 
+A third axis, orthogonal to both fixes: ``verify_origin=True`` says B checks a claim against the
+truth, but not *how precisely* -- a real check can exist and still be too loose (ShadowPrompt,
+Anthropic's Claude in Chrome extension, 2025-12-27: trust was granted to any sender matching the
+wildcard ``*.claude.ai``, and a separate XSS on the real domain let attacker content message the
+extension as that trusted first-party sender). ``trust_mode="wildcard"`` with a ``trust_pattern``
+models exactly that: B treats any ``true_origin`` matching the pattern as sufficiently verified
+*without* correcting ``claimed_origin`` back to the truth, so C ends up authorizing whatever
+identity was **claimed** (the forged one), based only on the true sender loosely matching a
+pattern-group, not on it being the specific identity the claim names. ``trust_mode="exact"``
+(default) is the original fix, unaffected by this axis: it always relabels with the true origin
+exactly, pattern or not.
+
 This also plugs into the pipeline every other campaign in this project already uses:
 ``chaos_agents.adapters.a2a_trust.A2ATrustAdapter`` wraps the identical simulation as an ordinary
 adapter, so ``chaos-agents run campaigns/a2a_trust_exploitation.yaml``, ``finding promote``,
@@ -53,6 +65,7 @@ same ground truth seen by the findings and regression machinery that already exi
 
 from __future__ import annotations
 
+import fnmatch
 import secrets
 from dataclasses import dataclass, field, replace
 from pathlib import Path
@@ -111,16 +124,26 @@ def agent_a_compose(trace_id: str, true_identity: str, claimed_identity: str, in
                    instruction=instruction, verified=False)
 
 
-def agent_b_delegate(message: Message, verify_origin: bool) -> Message:
+def agent_b_delegate(message: Message, verify_origin: bool, trust_mode: str = "exact",
+                     trust_pattern: str | None = None) -> Message:
     """Agent B: the orchestrator. As the direct recipient of A's message, B genuinely knows who
     it came from (``message.true_origin``) the way a real system knows the identity on its own
     transport layer -- that is never itself forgeable, only a *payload field* claiming otherwise
     is. With the fix, B checks the claim against that and relabels the delegation with the TRUE
     origin, marking it verified; without it, B relays the self-reported claim onward as though it
-    were established fact, verifying nothing."""
-    if verify_origin:
-        return replace(message, claimed_origin=message.true_origin, verified=True)
-    return replace(message, verified=False)
+    were established fact, verifying nothing.
+
+    ``trust_mode="wildcard"`` models a verification that exists but matches loosely: if
+    ``true_origin`` satisfies ``trust_pattern`` (a glob, e.g. ``"*-admin.internal"``), B marks the
+    delegation verified WITHOUT relabelling ``claimed_origin`` -- the forged claim rides through
+    exactly as A wrote it, authorized later purely because the true sender was *a* member of the
+    trusted pattern-group, never checked to be *the specific* identity it claimed. A true_origin
+    that does not match the pattern falls back to the same safe, exact relabelling as the default."""
+    if not verify_origin:
+        return replace(message, verified=False)
+    if trust_mode == "wildcard" and trust_pattern and fnmatch.fnmatch(message.true_origin, trust_pattern):
+        return replace(message, verified=True)          # claimed_origin left exactly as A forged it
+    return replace(message, claimed_origin=message.true_origin, verified=True)
 
 
 def agent_c_execute(message: Message, registry: dict[str, tuple[str, ...]], enforce_at_execution: bool) -> tuple[bool, str]:
@@ -153,6 +176,8 @@ class TrustChainConfig:
     authorized_identities: dict[str, tuple[str, ...]] = field(default_factory=lambda: dict(DEFAULT_REGISTRY))
     verify_origin: bool = False
     enforce_at_execution: bool = False
+    trust_mode: str = "exact"
+    trust_pattern: str | None = None
 
     def __post_init__(self) -> None:
         if not str(self.name).strip():
@@ -162,6 +187,10 @@ class TrustChainConfig:
                 raise TrustChainError(f"a trust chain needs a non-empty '{field_name}'")
         if not self.authorized_identities:
             raise TrustChainError("authorized_identities must name at least one identity")
+        if self.trust_mode not in ("exact", "wildcard"):
+            raise TrustChainError(f"trust_mode must be 'exact' or 'wildcard', got {self.trust_mode!r}")
+        if self.trust_mode == "wildcard" and not (self.trust_pattern and str(self.trust_pattern).strip()):
+            raise TrustChainError("trust_mode='wildcard' needs a non-empty 'trust_pattern'")
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "TrustChainConfig":
@@ -182,7 +211,7 @@ class TrustChainConfig:
         else:
             fields = {k: v for k, v in data.items() if k != "name"}
         known = {"true_identity", "claimed_identity", "instruction", "authorized_identities",
-                 "verify_origin", "enforce_at_execution"}
+                 "verify_origin", "enforce_at_execution", "trust_mode", "trust_pattern"}
         unknown = set(fields) - known
         if unknown:
             raise TrustChainError(f"unknown chain key(s): {', '.join(sorted(unknown))}; expected {', '.join(sorted(known))}")
@@ -207,6 +236,10 @@ class TrustChainConfig:
                 if not isinstance(fields[key], bool):
                     raise TrustChainError(f"{key} must be true or false")
                 kwargs[key] = fields[key]
+        if "trust_mode" in fields:
+            kwargs["trust_mode"] = str(fields["trust_mode"])
+        if "trust_pattern" in fields:
+            kwargs["trust_pattern"] = str(fields["trust_pattern"])
         return cls(**kwargs)
 
     @classmethod
@@ -273,10 +306,11 @@ class TrustCampaignRunner:
 
     # ---- Agent B: delegate -- is the true origin preserved, or the claim relayed as fact? ---
     def _stage_trust_propagation(self, stage: ChainStage) -> None:
-        self._delegated = agent_b_delegate(self._message, self.config.verify_origin)
+        self._delegated = agent_b_delegate(self._message, self.config.verify_origin,
+                                           self.config.trust_mode, self.config.trust_pattern)
         origin_preserved = self._delegated.verified and self._delegated.claimed_origin == self._message.true_origin
         stage.evidence = {"delegated_message": self._delegated.to_dict(), "origin_preserved": origin_preserved,
-                          "verify_origin_enabled": self.config.verify_origin}
+                          "verify_origin_enabled": self.config.verify_origin, "trust_mode": self.config.trust_mode}
         stage.status = "ok"      # a naive delegation is still a completed, informative stage
         self._log("trust_propagation", "Agent B delegated the message to Agent C", origin_preserved=origin_preserved)
 
@@ -328,6 +362,7 @@ class TrustCampaignRunner:
                 "claimed_identity": self.config.claimed_identity, "instruction": self.config.instruction,
                 "authorized_identities": {k: list(v) for k, v in self.config.authorized_identities.items()},
                 "verify_origin": self.config.verify_origin, "enforce_at_execution": self.config.enforce_at_execution,
+                "trust_mode": self.config.trust_mode, "trust_pattern": self.config.trust_pattern,
             },
         )
 

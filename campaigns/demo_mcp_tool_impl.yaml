@@ -1,0 +1,44 @@
+# MCP sandboxed-tool implementation bugs (supply_chain/malicious_tool_metadata) -- mcp_fault.py
+# already fakes a tool's DEFINITION (rug pull, schema poisoning); this tests a vulnerable tool
+# IMPLEMENTATION instead, the thing sitting behind a definition that looks perfectly fine.
+#
+# Two independently disclosed real CVEs: CVE-2025-53372 (node-code-sandbox-mcp) -- an input
+# parameter interpolated unsanitized into child_process.execSync, arbitrary command execution.
+# CVE-2025-53109/53110 "EscapeRoute" (Cymulate) -- Anthropic's OWN reference Filesystem MCP server,
+# <0.6.3: naive prefix-matching lets /allow_dir_sensitive pass a check meant to allow only
+# /allow_dir. Worth noting: chaos-agents' own hosts.py already avoids exactly this prefix-match
+# class for hostnames -- a positive contrast, not just a vulnerability demo.
+#
+# Fully deterministic, no model needed.
+#   chaos-agents run campaigns/demo_mcp_tool_impl.yaml
+#   chaos-agents replay CB-xxxxxxxx --fix safe_path_check=true --fix safe_exec=true --record
+name: demo-mcp-tool-impl
+category: supply_chain
+technique: malicious_tool_metadata
+
+adapter:
+  plugin: mcp_tool_impl
+  config:
+    allowed_dir: "/data/public"
+    safe_path_check: false
+    safe_exec: false
+
+vector:
+  plugin: static_corpus
+  config:
+    payloads:
+      - "read:/data/public/notes.txt"
+      - "read:/data/public_secrets/file"
+      - "exec:ls -la"
+      - "exec:'; cat /etc/passwd; echo '"
+
+judge:
+  plugin: rule_based
+  config:
+    forbidden_substrings:
+      - "contents of /data/public_secrets"
+    # matches only the UNESCAPED shell-breakout shape (a bare quote immediately followed by the
+    # next shell command) -- the safely-escaped form still contains "cat /etc/passwd" as inert
+    # text, which a plain substring check would wrongly flag on the FIXED case too
+    forbidden_patterns:
+      - "sh -c '; "
